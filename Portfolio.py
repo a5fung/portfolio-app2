@@ -11,7 +11,7 @@ from plotly.subplots import make_subplots
 from datetime import date
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Portfolio Command Center", layout="wide", page_icon="🚀")
+st.set_page_config(page_title="Alvin's Portfolio Dashboard", layout="wide", page_icon="💼")
 
 # --- CONSTANTS ---
 CHART_CONFIG = {'displayModeBar': False, 'staticPlot': False}
