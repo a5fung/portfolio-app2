@@ -102,21 +102,25 @@ def style_chart(fig):
             showgrid=True, gridcolor="#E0E0E0", gridwidth=1,
             showline=True, linecolor="#E0E0E0",
             tickfont=dict(color="#1F2937"),
+            fixedrange=True # Disable Zoom/Pan
         ),
         yaxis=dict(
             showgrid=True, gridcolor="#E0E0E0", gridwidth=1,
             showline=False, zeroline=False,
             tickfont=dict(color="#1F2937"),
+            fixedrange=True # Disable Zoom/Pan
         ),
         yaxis2=dict(
             showgrid=False, showline=False, zeroline=False,
             tickfont=dict(color="#1F2937"),
-            overlaying="y", side="right"
+            overlaying="y", side="right",
+            fixedrange=True # Disable Zoom/Pan
         ),
         legend=dict(
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
             font=dict(color="#1F2937"), bgcolor="rgba(255,255,255,0.8)"
-        )
+        ),
+        hovermode="x unified"
     )
     return fig
 
@@ -206,37 +210,37 @@ with t1:
             textposition="top center",
             textfont=dict(size=12, color="#1565C0")
         )
-        st.plotly_chart(style_chart(fig), use_container_width=True, config={'staticPlot': True}, key="summ_trend")
+        st.plotly_chart(style_chart(fig), use_container_width=True, config={'displayModeBar': False}, key="summ_trend")
 
     with col_sun:
         st.subheader("Allocation Hierarchy")
         fig_sun = px.sunburst(latest, path=['Bucket', 'Account'], values='Total Value')
         fig_sun.update_traces(textinfo="label+percent entry")
-        st.plotly_chart(style_chart(fig_sun), use_container_width=True, config={'staticPlot': True}, key="summ_sun")
+        st.plotly_chart(style_chart(fig_sun), use_container_width=True, config={'displayModeBar': False}, key="summ_sun")
 
     # Global Risk
     st.subheader("Global Risk Monitor")
     d_tot = f_df.groupby("Date")["Total Value"].sum().reset_index()
-    g_hist = df.groupby("Date")["Total Value"].sum().reset_index()
-    g_hist["Peak"] = g_hist["Total Value"].cummax()
-    d_tot = pd.merge(d_tot, g_hist[["Date", "Peak"]], on="Date", how="left")
+    d_tot = d_tot.sort_values("Date") # Explicit Sort
+    
+    # --- CALCULATE PEAK ON FILTERED VIEW ---
+    d_tot["Peak"] = d_tot["Total Value"].cummax()
     
     fig_risk = go.Figure()
-    # Updated Trace: Markers + Matched Text Color
     fig_risk.add_trace(go.Scatter(
         x=d_tot["Date"], y=d_tot["Total Value"], name='Value', 
         line=dict(color='#1565C0', width=3),
-        mode="lines+markers+text",  # Added Markers
-        marker=dict(size=6),        # Marker Size
+        mode="lines+markers+text", 
+        marker=dict(size=6),
         text=d_tot["Total Value"], 
         texttemplate='%{y:.2s}', 
         textposition="top center",
-        textfont=dict(color="#1565C0") # Matched Color
+        textfont=dict(color="#1565C0")
     ))
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"], name='Peak', line=dict(dash='dash', color='#9E9E9E')))
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"]*0.93, name='-7%', line=dict(dash='dot', color='#FFB74D')))
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"]*0.85, name='-15%', line=dict(dash='dot', color='#E53935')))
-    st.plotly_chart(style_chart(fig_risk), use_container_width=True, config={'staticPlot': True}, key="summ_risk")
+    st.plotly_chart(style_chart(fig_risk), use_container_width=True, config={'displayModeBar': False}, key="summ_risk")
 
 # TAB 2: TRENDS
 with t2:
@@ -248,7 +252,6 @@ with t2:
             acct_df = f_df[f_df["Account"] == acct]
             dy = acct_df.groupby("Date")[["Total Value","Cash","Margin Balance","YTD"]].sum().reset_index()
             
-            # --- ACCOUNT KPI CARDS ---
             latest_acct = acct_df.iloc[-1]
             cur_val = latest_acct["Total Value"]
             cur_ytd = latest_acct["YTD"]
@@ -257,10 +260,8 @@ with t2:
             with k1: kpi_card("Current Value", f"${cur_val:,.0f}")
             with k2: kpi_card("YTD Return", f"{cur_ytd:.1f}%")
             
-            # --- CHART ---
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # Bars (LIGHTER BLUE)
             fig.add_trace(go.Bar(
                 x=dy["Date"], y=dy["Total Value"], name="Val", 
                 marker_color="#90CAF9", 
@@ -273,7 +274,6 @@ with t2:
                 marker_color="#A5D6A7" 
             ), secondary_y=False)
             
-            # Line
             fig.add_trace(go.Scatter(
                 x=dy["Date"], y=dy["YTD"], name="YTD %", 
                 mode="lines+markers+text",
@@ -287,7 +287,7 @@ with t2:
             
             fig = style_chart(fig)
             fig.update_layout(barmode='group')
-            st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True}, key=f"tr_{i}")
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"tr_{i}")
             st.divider()
 
 # TAB 3: ALLOCATION
@@ -297,13 +297,12 @@ with t3:
         st.subheader("Visual Breakdown")
         fig_s = px.sunburst(latest, path=['Bucket', 'Account'], values='Total Value')
         fig_s.update_traces(textinfo="label+percent entry")
-        st.plotly_chart(style_chart(fig_s), use_container_width=True, config={'staticPlot': True}, key="alloc_sun")
+        st.plotly_chart(style_chart(fig_s), use_container_width=True, config={'displayModeBar': False}, key="alloc_sun")
     with c_r:
         st.subheader("Data Table")
         piv = latest.groupby("Bucket")[["Total Value","Cash"]].sum().sort_values("Total Value", ascending=False).reset_index()
         piv["%"] = (piv["Total Value"]/val)*100
         
-        # PLOTLY TABLE
         fig_table = go.Figure(data=[go.Table(
             header=dict(
                 values=["<b>Bucket</b>", "<b>Total Value</b>", "<b>Cash</b>", "<b>Alloc %</b>"],
@@ -325,7 +324,7 @@ with t3:
             ))
         ])
         fig_table.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=400)
-        st.plotly_chart(fig_table, use_container_width=True, config={'staticPlot': True}, key="alloc_table")
+        st.plotly_chart(fig_table, use_container_width=True, config={'displayModeBar': False}, key="alloc_table")
 
 # TAB 4: RISK
 with t4:
@@ -335,11 +334,16 @@ with t4:
     for i, acct in enumerate(acct_order):
         with cols[i % 2]:
             st.markdown(f"**{acct}**")
+            
+            # 1. GET FILTERED VIEW
             hist = df[df["Account"] == acct].groupby("Date")["Total Value"].sum().reset_index()
-            hist["Peak"] = hist["Total Value"].cummax()
             view = hist[(hist["Date"] >= pd.to_datetime(dr[0])) & (hist["Date"] <= pd.to_datetime(dr[1]))]
+            view = view.sort_values("Date")
             
             if not view.empty:
+                # 2. CALCULATE PEAK ON VIEW ONLY
+                view["Peak"] = view["Total Value"].cummax()
+                
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=view["Date"], y=view["Total Value"], name='Val', line=dict(color='#1976D2')))
                 fig.add_trace(go.Scatter(x=view["Date"], y=view["Peak"], name='Peak', line=dict(dash='dash', color='#9E9E9E')))
@@ -348,4 +352,4 @@ with t4:
                 
                 fig = style_chart(fig)
                 fig.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
-                st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True}, key=f"risk_{i}")
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"risk_{i}")
