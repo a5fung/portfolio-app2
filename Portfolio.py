@@ -42,7 +42,7 @@ st.markdown("""
         text-transform: uppercase;
     }
     .kpi-value {
-        font-size: 24px; /* Slightly smaller for sub-cards */
+        font-size: 24px;
         font-weight: 800;
         color: #0D47A1 !important;
         margin-top: 5px;
@@ -206,15 +206,14 @@ with t1:
             textposition="top center",
             textfont=dict(size=12, color="#1565C0")
         )
-        st.plotly_chart(style_chart(fig), use_container_width=True, key="summ_trend")
+        # STATIC PLOT (Mobile Friendly)
+        st.plotly_chart(style_chart(fig), use_container_width=True, config={'staticPlot': True})
 
     with col_sun:
         st.subheader("Allocation Hierarchy")
-        # Sunburst with Labels
         fig_sun = px.sunburst(latest, path=['Bucket', 'Account'], values='Total Value')
-        # Add Percentage Labels
         fig_sun.update_traces(textinfo="label+percent entry")
-        st.plotly_chart(style_chart(fig_sun), use_container_width=True, key="summ_sun")
+        st.plotly_chart(style_chart(fig_sun), use_container_width=True, config={'staticPlot': True})
 
     # Global Risk
     st.subheader("Global Risk Monitor")
@@ -232,9 +231,9 @@ with t1:
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"], name='Peak', line=dict(dash='dash', color='#9E9E9E')))
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"]*0.93, name='-7%', line=dict(dash='dot', color='#FFB74D')))
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"]*0.85, name='-15%', line=dict(dash='dot', color='#E53935')))
-    st.plotly_chart(style_chart(fig_risk), use_container_width=True, key="summ_risk")
+    st.plotly_chart(style_chart(fig_risk), use_container_width=True, config={'staticPlot': True})
 
-# TAB 2: TRENDS (New KPI Cards + Lighter Bars)
+# TAB 2: TRENDS
 with t2:
     st.subheader("Account Performance (Sorted by Value)")
     
@@ -245,7 +244,6 @@ with t2:
             dy = acct_df.groupby("Date")[["Total Value","Cash","Margin Balance","YTD"]].sum().reset_index()
             
             # --- ACCOUNT KPI CARDS ---
-            # Get latest values for this specific account
             latest_acct = acct_df.iloc[-1]
             cur_val = latest_acct["Total Value"]
             cur_ytd = latest_acct["YTD"]
@@ -257,17 +255,17 @@ with t2:
             # --- CHART ---
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # Bars (LIGHTER BLUE: #90CAF9)
+            # Bars (LIGHTER BLUE)
             fig.add_trace(go.Bar(
                 x=dy["Date"], y=dy["Total Value"], name="Val", 
-                marker_color="#90CAF9", # Lighter Blue for readability
+                marker_color="#90CAF9", 
                 text=dy["Total Value"], texttemplate='%{y:.2s}', textposition='inside',
-                textfont=dict(color="#0D47A1") # Dark Blue Text
+                textfont=dict(color="#0D47A1") 
             ), secondary_y=False)
             
             fig.add_trace(go.Bar(
                 x=dy["Date"], y=dy["Cash"], name="Cash", 
-                marker_color="#A5D6A7" # Lighter Green
+                marker_color="#A5D6A7" 
             ), secondary_y=False)
             
             # Line
@@ -284,28 +282,27 @@ with t2:
             
             fig = style_chart(fig)
             fig.update_layout(barmode='group')
-            st.plotly_chart(fig, use_container_width=True, key=f"tr_{i}")
+            st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
             st.divider()
 
-# TAB 3: ALLOCATION (Fixed with Plotly Table)
+# TAB 3: ALLOCATION
 with t3:
     c_l, c_r = st.columns([1, 1])
     with c_l:
         st.subheader("Visual Breakdown")
         fig_s = px.sunburst(latest, path=['Bucket', 'Account'], values='Total Value')
-        # Labels for Sunburst
         fig_s.update_traces(textinfo="label+percent entry")
-        st.plotly_chart(style_chart(fig_s), use_container_width=True, key="alloc_sun")
+        st.plotly_chart(style_chart(fig_s), use_container_width=True, config={'staticPlot': True})
     with c_r:
         st.subheader("Data Table")
         piv = latest.groupby("Bucket")[["Total Value","Cash"]].sum().sort_values("Total Value", ascending=False).reset_index()
         piv["%"] = (piv["Total Value"]/val)*100
         
-        # PLOTLY TABLE (Fixes the "Blank" Issue permanently)
+        # PLOTLY TABLE
         fig_table = go.Figure(data=[go.Table(
             header=dict(
                 values=["<b>Bucket</b>", "<b>Total Value</b>", "<b>Cash</b>", "<b>Alloc %</b>"],
-                fill_color='#E3F2FD', # Light Blue Header
+                fill_color='#E3F2FD',
                 align='left',
                 font=dict(color='black', size=14)
             ),
@@ -323,7 +320,7 @@ with t3:
             ))
         ])
         fig_table.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=400)
-        st.plotly_chart(fig_table, use_container_width=True)
+        st.plotly_chart(fig_table, use_container_width=True, config={'staticPlot': True})
 
 # TAB 4: RISK
 with t4:
@@ -346,4 +343,4 @@ with t4:
                 
                 fig = style_chart(fig)
                 fig.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
-                st.plotly_chart(fig, use_container_width=True, key=f"risk_{i}")
+                st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
