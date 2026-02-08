@@ -311,10 +311,17 @@ def drawdown_chart(data, date_col="Date", value_col="Total Value", height=None, 
         n = len(data)
         vals = data[value_col].values
         text_arr = [""] * n
-        if n >= 1:
-            text_arr[0] = _fmt(vals[0])
+        # Last value label
         if n >= 2:
             text_arr[-1] = _fmt(vals[-1])
+        # Peak label — show where all-time high was reached
+        if n >= 3:
+            peak_idx = int(data[value_col].idxmax())
+            # Convert from DataFrame index to positional index
+            peak_pos = data.index.get_loc(peak_idx)
+            # Only add if peak isn't the last point (avoid overlap)
+            if peak_pos != n - 1:
+                text_arr[peak_pos] = _fmt(vals[peak_pos])
         value_trace.update(
             mode="lines+markers+text",
             text=text_arr,
@@ -822,6 +829,15 @@ with tab1:
         name="Total Value",
     ))
     fig = style_chart(fig, height=350)
+    # Last-value end-point label
+    if len(trend) >= 1:
+        _last_val = trend["Total Value"].iloc[-1]
+        fig.add_annotation(
+            x=trend["Date"].iloc[-1], y=_last_val,
+            text=_fmt(_last_val), showarrow=False,
+            font=dict(color=C["primary"], size=11, family="JetBrains Mono"),
+            yshift=14,
+        )
     add_annotation_markers(fig, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="ov_growth")
 
@@ -1122,5 +1138,9 @@ with tab3:
     )
     fig_bt.update_traces(line=dict(width=1))
     fig_bt = style_chart(fig_bt, height=300)
+    fig_bt.update_layout(showlegend=True, legend=dict(
+        orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+        font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
+    ))
     fig_bt.update_yaxes(tickprefix="", ticksuffix="%", tickformat=".0f")
     st.plotly_chart(fig_bt, use_container_width=True, config=CHART_CONFIG, key="alloc_trend")
