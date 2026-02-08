@@ -13,7 +13,7 @@ from datetime import date, datetime
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio Dashboard", layout="wide", page_icon="◆")
 
-CHART_CONFIG = {"displayModeBar": False, "staticPlot": False}
+CHART_CONFIG = {"displayModeBar": False, "staticPlot": False, "scrollZoom": False}
 WARNING_THRESHOLD = 0.93
 DANGER_THRESHOLD = 0.85
 DATA_CACHE_TTL = 60
@@ -168,6 +168,8 @@ def style_chart(fig, height=None):
         ),
         hovermode="x unified",
         hoverlabel=dict(bgcolor=C["surface2"], font_size=12, bordercolor=C["border"]),
+        dragmode=False,
+        yaxis2=dict(fixedrange=True),
     )
     if height:
         fig.update_layout(height=height)
