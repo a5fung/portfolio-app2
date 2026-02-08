@@ -29,11 +29,11 @@ C = {
     "surface":      "#111113", # Almost Black Card
     "surface2":     "#18181B", # Hover state
     
-    # Text (New & Old Keys mapped together)
+    # Text hierarchy
     "text":         "#FFFFFF", # Pure White
-    "text_sec":     "#A1A1AA", # Zinc-400 (Secondary)
-    "text_muted":   "#A1A1AA", # Zinc-400 (Old key mapped to new color)
-    "text_dim":     "#52525B", # Zinc-600 (Tertiary)
+    "text_sec":     "#D4D4D8", # Zinc-300 (Secondary — values, numbers)
+    "text_muted":   "#A1A1AA", # Zinc-400 (Tertiary — chart labels, axes)
+    "text_dim":     "#52525B", # Zinc-600 (Quaternary — micro labels)
     
     # Status Colors
     "primary":      "#00D26A", # Growth Green
@@ -50,8 +50,8 @@ C = {
 }
 
 ACCENT_RAMP = [
-    "#3B82F6", "#06B6D4", "#8B5CF6", "#14B8A6",
-    "#A78BFA", "#2DD4BF", "#6366F1", "#34D399",
+    "#3B82F6", "#EF4444", "#22C55E", "#F59E0B",
+    "#A855F7", "#EC4899", "#06B6D4", "#F97316",
 ]
 
 # --- STYLES ---
@@ -85,8 +85,8 @@ st.markdown(f"""
     }}
     
     /* 5. METRIC LABELS & VALUES */
-    .sub-label {{ font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }}
-    .sub-val {{ font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #FFF; font-weight: 500; white-space: nowrap; }}
+    .sub-label {{ font-size: 10px; color: {C["text_dim"]}; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }}
+    .sub-val {{ font-family: 'JetBrains Mono', monospace; font-size: 16px; color: {C["text"]}; font-weight: 500; white-space: nowrap; }}
     
     /* Mobile text scaling for the row */
     @media (max-width: 600px) {{
@@ -100,10 +100,11 @@ st.markdown(f"""
         align-items: center;
         gap: 12px;
         padding: 8px 0;
-        border-bottom: 1px solid #111;
+        border-bottom: 1px solid {C["surface"]};
     }}
-    .spark-label {{ font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    .spark-val {{ font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FFF; text-align: right; }}
+    .spark-row:last-child {{ border-bottom: none; }}
+    .spark-label {{ font-size: 12px; color: {C["text_muted"]}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .spark-val {{ font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {C["text"]}; text-align: right; }}
 
     /* 7. METRIC GRID (Header) */
     .metric-grid {{
@@ -113,11 +114,11 @@ st.markdown(f"""
         margin-bottom: 24px;
     }}
     @media (min-width: 768px) {{ .metric-grid {{ grid-template-columns: repeat(4, 1fr); }} }}
-    .metric-item {{ border-top: 1px solid #222; padding-top: 8px; }}
+    .metric-item {{ border-top: 1px solid {C["border"]}; padding-top: 8px; }}
 
     /* UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
-    section[data-testid="stSidebar"] {{ background-color: #000000 !important; border-right: 1px solid #222; }}
+    section[data-testid="stSidebar"] {{ background-color: {C["bg"]} !important; border-right: 1px solid {C["border"]}; }}
     #MainMenu, footer, header {{ visibility: hidden; }}
     .block-container {{ padding-top: 1.5rem !important; }}
 </style>
@@ -151,12 +152,13 @@ def style_chart(fig, height=None):
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#666", size=10, family="JetBrains Mono"),
+        font=dict(color=C["text_dim"], size=10, family="JetBrains Mono"),
         margin=dict(l=0, r=0, t=10, b=0),
         
         # 2. LOCK INTERACTIONS (The Fix)
         dragmode=False,     # Disable panning/zooming via drag
         hovermode="x unified",
+        hoverlabel=dict(bgcolor=C["surface2"], font_size=12, font_family="JetBrains Mono", bordercolor=C["border"]),
         
         xaxis=dict(
             showgrid=False, 
@@ -166,7 +168,7 @@ def style_chart(fig, height=None):
         ),
         yaxis=dict(
             showgrid=True, 
-            gridcolor="#222", 
+            gridcolor=C["border"], 
             gridwidth=1, 
             showline=False,
             fixedrange=True, # Disable Zoom on Y
@@ -233,10 +235,16 @@ def drawdown_chart(data, date_col="Date", value_col="Total Value", height=None, 
         mode="lines+markers", marker=dict(size=5),
     )
     if show_labels:
+        n = len(data)
+        vals = data[value_col].values
+        text_arr = [""] * n
+        if n >= 1:
+            text_arr[0] = f"${vals[0]:,.0f}"
+        if n >= 2:
+            text_arr[-1] = f"${vals[-1]:,.0f}"
         value_trace.update(
             mode="lines+markers+text",
-            text=data[value_col],
-            texttemplate="%{y:.2s}",
+            text=text_arr,
             textposition="top center",
             textfont=dict(color=C["primary"], size=11),
         )
@@ -552,7 +560,7 @@ with spark_placeholder.container():
         
         # Color logic: Green if up, Red if down
         is_up = len(vals) >= 2 and vals[-1] >= vals[0]
-        trend_color = "#00D26A" if is_up else "#F82C2C"
+        trend_color = C["positive"] if is_up else C["negative"]
         
         # Generate SVG
         svg = make_sparkline_svg(vals, color=trend_color, width=60, height=20)
@@ -576,11 +584,11 @@ c_hero, c_delta = st.columns([1.5, 2])
 with c_hero:
     st.markdown(f"""
     <div style="margin-bottom: 4px;">
-        <span style="font-size: 10px; color: #666; letter-spacing: 0.15em; text-transform: uppercase; white-space: nowrap;">Net Liquidity</span>
+        <span style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.15em; text-transform: uppercase; white-space: nowrap;">Net Liquidity</span>
     </div>
     <div class="mono" style="
-        font-size: clamp(32px, 8vw, 64px); /* Slightly smaller clamp for tighter mobile fit */
-        font-weight: 700; color: #FFF; line-height: 1.1; white-space: nowrap; letter-spacing: -0.04em;
+        font-size: clamp(32px, 8vw, 64px);
+        font-weight: 700; color: {C["text"]}; line-height: 1.1; white-space: nowrap; letter-spacing: -0.04em;
     ">
         ${total_value:,.0f}
     </div>
@@ -588,17 +596,17 @@ with c_hero:
 
 with c_delta:
     is_pos = "+" in str(delta_value) if delta_value else False
-    d_color = "#00D26A" if is_pos else "#F82C2C"
-    
+    d_color = C["positive"] if is_pos else C["negative"]
+
     st.markdown(f"""
     <div style="height: 100%; min-height: 60px; display: flex; align-items: flex-end; gap: 16px; padding-bottom: 4px; flex-wrap: wrap;">
         <div>
-            <div style="font-size: 9px; color: #666; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
+            <div style="font-size: 10px; color: {C["text_dim"]}; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
             <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {d_color}; white-space: nowrap;">{delta_value}</div>
         </div>
-        <div style="width: 1px; height: 24px; background: #333; opacity: 0.5; margin-bottom: 4px;"></div>
+        <div style="width: 1px; height: 24px; background: {C["border"]}; opacity: 0.5; margin-bottom: 4px;"></div>
         <div>
-            <div style="font-size: 9px; color: #666; margin-bottom: 2px; text-transform: uppercase;">YTD Return</div>
+            <div style="font-size: 10px; color: {C["text_dim"]}; margin-bottom: 2px; text-transform: uppercase;">YTD Return</div>
             <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {ytd_color(portfolio_ytd)}; white-space: nowrap;">{portfolio_ytd:+.1f}%</div>
         </div>
     </div>
@@ -608,24 +616,24 @@ st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
 # 2. THE COMPACT METRIC GRID (2x2 on Mobile)
 alpha = portfolio_ytd - spy_return
-alpha_col = "#00D26A" if alpha >= 0 else "#F82C2C"
+alpha_col = C["positive"] if alpha >= 0 else C["negative"]
 
 st.markdown(f"""
 <div class="metric-grid">
     <div class="metric-item">
-        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">BUYING POWER</div>
-        <div class="mono" style="font-size: 16px; color: #DDD;">${total_cash:,.0f}</div>
+        <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">BUYING POWER</div>
+        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">${total_cash:,.0f}</div>
     </div>
     <div class="metric-item">
-        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">MARGIN USED</div>
-        <div class="mono" style="font-size: 16px; color: #DDD;">${total_margin:,.0f}</div>
+        <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">MARGIN USED</div>
+        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">${total_margin:,.0f}</div>
     </div>
     <div class="metric-item">
-        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">NET DEPOSITS</div>
-        <div class="mono" style="font-size: 16px; color: #DDD;">${net_deposits:,.0f}</div>
+        <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">NET DEPOSITS</div>
+        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">${net_deposits:,.0f}</div>
     </div>
     <div class="metric-item">
-        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">ALPHA (vs SPY)</div>
+        <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">ALPHA (vs SPY)</div>
         <div class="mono" style="font-size: 16px; color: {alpha_col};">{alpha:+.1f}%</div>
     </div>
 </div>
@@ -641,12 +649,11 @@ if not _all_time_totals.empty:
 
     # 2. Main "Hero" Alert (The Big Banner)
     if _port_dd_pct > 7:
-        _color = "#F82C2C" if _port_dd_pct > 15 else "#F59E0B"
-        _icon = "🔴" if _port_dd_pct > 15 else "🟡"
+        _color = C["negative"] if _port_dd_pct > 15 else C["warning"]
+        _rgba = "248, 44, 44" if _port_dd_pct > 15 else "245, 158, 11"
         _peak_idx = _all_time_totals[_all_time_totals == _peak].index[-1]
-        
-        # Flattened HTML to prevent code-block rendering
-        st.markdown(f'<div style="background: rgba({("248, 44, 44" if _port_dd_pct > 15 else "245, 158, 11")}, 0.1); border: 1px solid {_color}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;"><span style="font-size: 16px;">{_icon}</span><div><div style="color: {_color}; font-weight: 600; font-size: 13px; letter-spacing: 0.02em;">PORTFOLIO DRAWDOWN ACTIVE</div><div style="color: {_color}; font-size: 12px; opacity: 0.9;">Current level is <span class="mono" style="font-weight: 700;">-{_port_dd_pct:.1f}%</span> from peak ({_peak_idx:%b %d}).</div></div></div>', unsafe_allow_html=True)
+
+        st.markdown(f'<div style="background: rgba({_rgba}, 0.1); border: 1px solid {_color}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: {_color}; flex-shrink: 0;"></span><div><div style="color: {_color}; font-weight: 600; font-size: 13px; letter-spacing: 0.02em;">PORTFOLIO DRAWDOWN ACTIVE</div><div style="color: {_color}; font-size: 12px; opacity: 0.9;">Current level is <span class="mono" style="font-weight: 700;">-{_port_dd_pct:.1f}%</span> from peak ({_peak_idx:%b %d}).</div></div></div>', unsafe_allow_html=True)
 
     # 3. Account Risk Matrix (The "System Status" Grid)
     status_items = []
@@ -662,34 +669,27 @@ if not _all_time_totals.empty:
         
         # --- THE STATUS LOGIC ---
         if a_dd < 1.0:
-            # ATH MODE (The "Winning" State)
-            # Bright Cyan/Green, Full Opacity
-            s_color = "#00D26A" # Growth Green
+            s_color = C["positive"]
             s_bg = "rgba(0, 210, 106, 0.1)"
-            s_border = "#00D26A"
+            s_border = C["positive"]
             s_opacity = "1.0"
-            s_text = "ATH" # Display "ATH" instead of -0.0%
+            s_text = "ATH"
         elif a_dd > 15:
-            # DANGER
-            s_color = "#F82C2C"
+            s_color = C["negative"]
             s_bg = "rgba(248, 44, 44, 0.15)"
-            s_border = "#F82C2C"
+            s_border = C["negative"]
             s_opacity = "1.0"
             s_text = f"-{a_dd:.1f}%"
         elif a_dd > 7:
-            # WARNING
-            s_color = "#F59E0B"
+            s_color = C["warning"]
             s_bg = "rgba(245, 158, 11, 0.15)"
-            s_border = "#F59E0B"
+            s_border = C["warning"]
             s_opacity = "1.0"
             s_text = f"-{a_dd:.1f}%"
         else:
-            # NORMAL / DORMANT (The "Ghost" State)
-            # This is for accounts that are down, but not critically.
-            # We dim them to reduce noise.
-            s_color = "#666" 
+            s_color = C["text_dim"]
             s_bg = "transparent"
-            s_border = "#333"
+            s_border = C["border"]
             s_opacity = "0.5"
             s_text = f"-{a_dd:.1f}%"
 
@@ -735,39 +735,30 @@ with tab1:
     trend = fdf.groupby("Date")["Total Value"].sum().reset_index()
 
     fig = go.Figure()
-# Tab 1: Overview Chart
-    fig = go.Figure()
-    
-    # Gradient Fill ("The Glow")
+
+    # Lower bound for fill (tight band under line instead of fill-to-zero)
+    y_min = trend["Total Value"].min() * 0.98
+    fig.add_trace(go.Scatter(
+        x=trend["Date"], y=[y_min] * len(trend),
+        mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ))
     fig.add_trace(go.Scatter(
         x=trend["Date"], y=trend["Total Value"],
         mode="lines",
-        line=dict(color="#00D26A", width=2), # Robinhood Green
-        fill="tozeroy",
-        fillcolor="rgba(0, 210, 106, 0.1)", # Subtle radioactive glow
+        line=dict(color=C["primary"], width=2),
+        fill="tonexty",
+        fillcolor="rgba(0, 210, 106, 0.08)",
         name="Total Value",
     ))
-    
-    # Update style to match the green theme
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#666", size=10, family="JetBrains Mono"),
-        margin=dict(l=0, r=0, t=0, b=0),
-        xaxis=dict(showgrid=False, showline=False),
-        yaxis=dict(showgrid=True, gridcolor="#222", gridwidth=1, showline=False),
-        hovermode="x unified",
-        showlegend=False,
-    )
     fig = style_chart(fig, height=350)
     add_annotation_markers(fig, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="ov_growth")
 
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+
     # Benchmark Comparison
     if not benchmark_df_ytd.empty and len(benchmark_df_ytd) > 1:
-        st.subheader("vs Benchmarks (YTD)")
-        # Build portfolio daily totals for YTD period
+        st.subheader("YTD vs Benchmarks")
         ytd_portfolio = df[(df["Date"] >= ytd_start) & (df["Date"] <= ytd_end)]
         if not ytd_portfolio.empty:
             port_daily = ytd_portfolio.groupby("Date")["Total Value"].sum().reset_index()
@@ -791,13 +782,18 @@ with tab1:
             ))
             fig_bench.add_trace(go.Scatter(
                 x=bench["Date"], y=bench["QQQ_pct"],
-                name="QQQ", line=dict(color=C["positive"], width=1.5, dash="dash"),
+                name="QQQ", line=dict(color="#3B82F6", width=1.5, dash="dash"),
                 mode="lines",
             ))
             fig_bench = style_chart(fig_bench, height=280)
+            fig_bench.update_layout(showlegend=True, legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
+            ))
             fig_bench.update_yaxes(tickprefix="", ticksuffix="%", tickformat="+.1f")
-            fig_bench.update_layout(hovermode="x unified")
             st.plotly_chart(fig_bench, use_container_width=True, config=CHART_CONFIG, key="ov_bench")
+
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
     # --- Global Risk Monitor ---
     st.subheader("Risk Monitor")
@@ -904,6 +900,10 @@ with tab2:
         line_width=1, opacity=0.5,
     )
     fig_norm = style_chart(fig_norm, height=350)
+    fig_norm.update_layout(showlegend=True, legend=dict(
+        orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+        font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
+    ))
     fig_norm.update_yaxes(tickprefix="", tickformat=",.0f")
     st.plotly_chart(fig_norm, use_container_width=True, config=CHART_CONFIG, key="perf_norm")
     st.markdown("")
@@ -927,10 +927,8 @@ with tab2:
             current_ytd = latest_acct["YTD"]
             acct_net_deposits = acct_df["W/D"].sum()
             
-            # --- THE FIX: Custom HTML Row instead of st.columns ---
-            # This guarantees 3 items in one row on mobile
-            ytd_c = "#00D26A" if current_ytd >= 0 else "#F82C2C"
-            
+            ytd_c = C["positive"] if current_ytd >= 0 else C["negative"]
+
             st.markdown(f"""
             <div class="flex-row">
                 <div>
@@ -939,7 +937,7 @@ with tab2:
                 </div>
                 <div style="text-align: center;">
                     <div class="sub-label">Net Deposits</div>
-                    <div class="sub-val" style="color: #DDD;">${acct_net_deposits:,.0f}</div>
+                    <div class="sub-val" style="color: {C["text_sec"]};">${acct_net_deposits:,.0f}</div>
                 </div>
                 <div style="text-align: right;">
                     <div class="sub-label">YTD Return</div>
@@ -954,38 +952,38 @@ with tab2:
 
             fig.add_trace(go.Bar(
                 x=daily["Date"], y=daily["Cash"],
-                name="Cash", marker_color="#27272A", 
+                name="Cash", marker_color=C["border"],
                 marker_line_width=0, opacity=0.8,
             ), secondary_y=False)
 
             fig.add_trace(go.Bar(
                 x=daily["Date"], y=daily["Invested"],
-                name="Invested", marker_color="#064E3B", 
+                name="Invested", marker_color=C["primary_dim"],
                 marker_line_width=0, opacity=0.9,
             ), secondary_y=False)
 
             curr_ytd_val = daily["YTD"].iloc[-1]
-            line_color = "#00D26A" if curr_ytd_val >= 0 else "#F82C2C"
-            
+            line_color = C["positive"] if curr_ytd_val >= 0 else C["negative"]
+            fill_rgba = "0, 210, 106" if curr_ytd_val >= 0 else "248, 44, 44"
+
             fig.add_trace(go.Scatter(
                 x=daily["Date"], y=daily["YTD"],
                 name="YTD %", mode="lines",
                 line=dict(color=line_color, width=2),
-                fill="tozeroy", fillcolor=f"rgba({('0, 210, 106' if curr_ytd_val >= 0 else '248, 44, 44')}, 0.05)",
+                fill="tozeroy", fillcolor=f"rgba({fill_rgba}, 0.05)",
             ), secondary_y=True)
 
-            # Apply strict locked style
-            fig = style_chart(fig, height=280) # Slightly shorter for mobile
+            fig = style_chart(fig, height=280)
             fig.update_layout(barmode="stack")
-            
-            # Axis formatting
-            fig.update_yaxes(title_text="", showgrid=True, gridcolor="#18181B", gridwidth=1, tickfont=dict(color="#52525B"), secondary_y=False)
+
+            fig.update_yaxes(title_text="", showgrid=True, gridcolor=C["grid"], gridwidth=1, tickfont=dict(color=C["text_dim"]), secondary_y=False)
             fig.update_yaxes(title_text="", showgrid=False, tickformat="+.1f", ticksuffix="%", tickfont=dict(color=line_color), secondary_y=True)
 
-            # Important: config=CHART_CONFIG ensures staticPlot=False but we disabled interactions in layout
             st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"perf_{i}")
-            
-            st.markdown('<div style="height: 24px; border-bottom: 1px solid #111; margin-bottom: 24px;"></div>', unsafe_allow_html=True)
+
+            # Divider between accounts, not after last
+            if i < len(account_order) - 1:
+                st.markdown(f'<div style="height: 24px; border-bottom: 1px solid {C["surface"]}; margin-bottom: 24px;"></div>', unsafe_allow_html=True)
 # ═══════════════════════════════════════════
 # TAB 3: ALLOCATION
 # ═══════════════════════════════════════════
@@ -1000,7 +998,7 @@ with tab3:
         )
         fig_sun.update_traces(
             textinfo="label+percent entry",
-            insidetextorientation="radial",
+            insidetextorientation="horizontal",
         )
         fig_sun.update_layout(
             margin=dict(l=0, r=0, t=8, b=0),
