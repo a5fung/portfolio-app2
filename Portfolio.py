@@ -9,14 +9,15 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import date, datetime
+import yfinance as yf
 
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio Dashboard", layout="wide", page_icon="◆")
 
-CHART_CONFIG = {"displayModeBar": False, "staticPlot": False}
+CHART_CONFIG = {"displayModeBar": False, "staticPlot": False, "scrollZoom": False}
 WARNING_THRESHOLD = 0.93
 DANGER_THRESHOLD = 0.85
-DATA_CACHE_TTL = 60
+DATA_CACHE_TTL = 300  # 5 minutes
 
 # --- DARK PALETTE ---
 C = {
@@ -168,6 +169,8 @@ def style_chart(fig, height=None):
         ),
         hovermode="x unified",
         hoverlabel=dict(bgcolor=C["surface2"], font_size=12, bordercolor=C["border"]),
+        dragmode=False,
+        yaxis2=dict(fixedrange=True),
     )
     if height:
         fig.update_layout(height=height)
@@ -272,6 +275,32 @@ def load_data():
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=DATA_CACHE_TTL)
+def load_benchmark(start_date, end_date):
+    """Fetch S&P 500 and QQQ data for benchmark comparison."""
+    try:
+        data = yf.download(["SPY", "QQQ"], start=start_date, end=end_date, progress=False)
+        if data.empty:
+            return pd.DataFrame()
+
+        # Handle both single and multi-ticker downloads
+        if isinstance(data.columns, pd.MultiIndex):
+            result = pd.DataFrame({
+                "Date": data.index,
+                "SPY": data[("Close", "SPY")].values if ("Close", "SPY") in data.columns else data["Close"]["SPY"].values,
+                "QQQ": data[("Close", "QQQ")].values if ("Close", "QQQ") in data.columns else data["Close"]["QQQ"].values,
+            })
+        else:
+            data = data.reset_index()
+            result = data[["Date", "Close"]].rename(columns={"Close": "SPY"})
+            result["QQQ"] = 0
+
+        return result.reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"Could not load benchmark data: {e}")
+        return pd.DataFrame()
+
+
 def clean_data(df):
     if df.empty:
         return df
@@ -281,10 +310,12 @@ def clean_data(df):
         st.error("Missing required 'Bucket' column")
         return pd.DataFrame()
     df = df.dropna(subset=["Bucket"])
-    for col in ["Total Value", "Cash", "Margin Balance"]:
+    for col in ["Total Value", "Cash", "Margin Balance", "W/D"]:
         if col in df.columns:
             s = df[col].astype(str).str.replace(r'[$,\s]', '', regex=True)
             df[col] = pd.to_numeric(s.str.replace('-', '0'), errors='coerce').fillna(0)
+    if "W/D" not in df.columns:
+        df["W/D"] = 0.0
     if "YTD" in df.columns:
         df["YTD"] = pd.to_numeric(df["YTD"].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
     else:
@@ -319,6 +350,11 @@ if not validate_data(df):
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### Filters")
+
+    if st.button("🔄 Refresh Data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
     min_date = df["Date"].min().date()
     max_date = df["Date"].max().date()
     default_start = max(date(2026, 1, 1), min_date)
@@ -335,10 +371,34 @@ with st.sidebar:
     spark_placeholder = st.empty()
 
     st.markdown("---")
+
+    # Annotations
+    if "annotations" not in st.session_state:
+        st.session_state.annotations = {}
+
+    with st.expander("📝 Annotations"):
+        st.caption("Track important events")
+
+        # Add annotation
+        ann_date = st.date_input("Date", max_date, key="ann_date")
+        ann_text = st.text_input("Note", key="ann_text", placeholder="What happened?")
+
+        if st.button("Add Note", use_container_width=True):
+            if ann_text:
+                st.session_state.annotations[str(ann_date)] = ann_text
+                st.rerun()
+
+        # Show existing annotations
+        if st.session_state.annotations:
+            st.markdown("**Recent Notes:**")
+            for date_str in sorted(st.session_state.annotations.keys(), reverse=True)[:5]:
+                st.caption(f"**{date_str}:** {st.session_state.annotations[date_str]}")
+
+    st.markdown("---")
     with st.expander("Data Quality"):
         st.caption(f"**{len(df)}** rows · {df['Date'].min():%Y-%m-%d} → {df['Date'].max():%Y-%m-%d}")
         st.caption(f"Missing values: {df.isnull().sum().sum()}")
-    st.caption(f"Auto-refreshes every {DATA_CACHE_TTL}s")
+    st.caption(f"Auto-refreshes every {DATA_CACHE_TTL//60}min")
 
 
 # --- APPLY FILTERS ---
@@ -355,6 +415,15 @@ if fdf.empty:
     st.warning("No data for selected range.")
     st.stop()
 
+# --- BENCHMARK DATA ---
+# Load full year for YTD comparison (Jan 1 of current year to today)
+current_year = datetime.now().year
+ytd_start = pd.Timestamp(current_year, 1, 1)
+ytd_end = pd.Timestamp(datetime.now().date())
+benchmark_df_ytd = load_benchmark(ytd_start, ytd_end)
+# Load filtered period for chart
+benchmark_df = load_benchmark(fdf["Date"].min(), fdf["Date"].max())
+
 # --- KEY METRICS ---
 latest = fdf[fdf["Date"] == fdf["Date"].max()]
 account_order = latest.groupby("Account")["Total Value"].sum().sort_values(ascending=False).index.tolist()
@@ -364,6 +433,9 @@ total_margin = latest["Margin Balance"].sum()
 
 # Value-weighted portfolio YTD: each row's YTD weighted by its share of total value
 portfolio_ytd = (latest["YTD"] * latest["Total Value"]).sum() / total_value if total_value else 0
+
+# Net deposits/withdrawals for the period
+net_deposits = fdf["W/D"].sum()
 
 # Deltas from previous period
 dates_sorted = sorted(fdf["Date"].unique())
@@ -377,6 +449,25 @@ if len(dates_sorted) >= 2:
     delta_margin = f"${total_margin - prev_margin:+,.0f}" if prev_margin else None
 else:
     delta_value = delta_cash = delta_margin = None
+
+# Value attribution: Market returns vs deposits
+if len(dates_sorted) >= 1:
+    first = fdf[fdf["Date"] == dates_sorted[0]]
+    first_value = first["Total Value"].sum()
+    total_change = total_value - first_value
+    market_returns = total_change - net_deposits
+else:
+    total_change = market_returns = 0
+
+# Benchmark YTD returns (from Jan 1)
+spy_return = 0
+qqq_return = 0
+if not benchmark_df_ytd.empty and len(benchmark_df_ytd) > 1:
+    try:
+        spy_return = ((benchmark_df_ytd["SPY"].iloc[-1] / benchmark_df_ytd["SPY"].iloc[0]) - 1) * 100
+        qqq_return = ((benchmark_df_ytd["QQQ"].iloc[-1] / benchmark_df_ytd["QQQ"].iloc[0]) - 1) * 100
+    except:
+        spy_return = qqq_return = 0
 
 # --- SIDEBAR SPARKLINES ---
 with spark_placeholder.container():
@@ -401,11 +492,28 @@ with spark_placeholder.container():
 st.title("Portfolio Command Center")
 st.markdown(f'<div class="timestamp">Last updated: {load_time.strftime("%b %d, %Y  %I:%M %p")}</div>', unsafe_allow_html=True)
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Net Liquidity", f"${total_value:,.0f}", delta=delta_value)
 c2.metric("Cash", f"${total_cash:,.0f}", delta=delta_cash)
 c3.metric("Margin", f"${total_margin:,.0f}", delta=delta_margin)
-c4.metric("YTD Return", f"{portfolio_ytd:+.1f}%")
+c4.metric("Net Deposits", f"${net_deposits:,.0f}")
+
+# Combined YTD comparison card
+with c5:
+    st.markdown(f"""
+    <div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px;">
+        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">YTD RETURN</div>
+        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{portfolio_ytd:+.1f}%</div>
+        <div style="font-size: 12px; color: {C["text_muted"]};">
+            SPY: <span style="color: {ytd_color(portfolio_ytd - spy_return)}; font-weight: 600;">{portfolio_ytd - spy_return:+.1f}%</span><br/>
+            QQQ: <span style="color: {ytd_color(portfolio_ytd - qqq_return)}; font-weight: 600;">{portfolio_ytd - qqq_return:+.1f}%</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Value attribution
+if len(dates_sorted) >= 1:
+    st.caption(f"Period Change: **${total_change:+,.0f}** = Market Returns **${market_returns:+,.0f}** + Net Deposits **${net_deposits:+,.0f}** · SPY: **{spy_return:+.1f}%** · QQQ: **{qqq_return:+.1f}%**")
 
 st.markdown("")
 
@@ -474,16 +582,18 @@ with tab2:
 
             acct_df = fdf[fdf["Account"] == account]
             daily = acct_df.groupby("Date")[
-                ["Total Value", "Cash", "Margin Balance", "YTD"]
+                ["Total Value", "Cash", "Margin Balance", "YTD", "W/D"]
             ].sum().reset_index()
 
             latest_acct = acct_df.iloc[-1]
             current_value = latest_acct["Total Value"]
             current_ytd = latest_acct["YTD"]
+            acct_net_deposits = acct_df["W/D"].sum()
 
-            k1, k2 = st.columns(2)
+            k1, k2, k3 = st.columns(3)
             k1.metric("Current Value", f"${current_value:,.0f}")
-            k2.metric("YTD Return", f"{current_ytd:+.1f}%")
+            k2.metric("Net Deposits", f"${acct_net_deposits:,.0f}")
+            k3.metric("YTD Return", f"{current_ytd:+.1f}%")
 
             fig = make_subplots(specs=[[{"secondary_y": True}]])
 
