@@ -491,54 +491,100 @@ with spark_placeholder.container():
 st.title("Portfolio Command Center")
 st.markdown(f'<div class="timestamp">Last updated: {load_time.strftime("%b %d, %Y  %I:%M %p")}</div>', unsafe_allow_html=True)
 
-# Changed from 5 columns to 4
+# Helper for uniform card styling
+def card_html(label, value, delta_label=None, delta_val=None, delta_color=None, extra_row=None):
+    # Default delta color logic
+    if delta_val and not delta_color:
+        delta_color = C["text_muted"]
+        if isinstance(delta_val, str) and "%" in delta_val:
+             # simplistic check for positive/negative in string
+            if "+" in delta_val: delta_color = C["positive"]
+            elif "-" in delta_val: delta_color = C["negative"]
+    
+    # Build the Delta/Sub-text row
+    sub_html = ""
+    if delta_val:
+        sub_html = f"""
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+            <span style="color: {C["text_muted"]};">{delta_label if delta_label else "vs Prev"}</span>
+            <span style="color: {delta_color}; font-weight: 600;">{delta_val}</span>
+        </div>
+        """
+    elif extra_row:
+        sub_html = extra_row
+
+    return f"""
+    <div style="
+        background: {C["surface"]}; 
+        border: 1px solid {C["border"]}; 
+        border-radius: 12px; 
+        padding: 16px 20px; 
+        margin-bottom: 16px;  /* <--- FIXES MOBILE SPACING */
+        height: 100%;
+    ">
+        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">{label}</div>
+        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{value}</div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+            {sub_html}
+        </div>
+    </div>
+    """
+
+# Columns
 c1, c2, c3, c4 = st.columns(4)
 
-# 1. Net Liquidity
-c1.metric("Net Liquidity", f"${total_value:,.0f}", delta=delta_value)
+# 1. Net Liquidity (Converted to Custom HTML)
+with c1:
+    st.markdown(card_html(
+        "Net Liquidity", 
+        f"${total_value:,.0f}", 
+        "vs Prev Period", 
+        delta_value, 
+        C["positive"] if delta_value and "+" in delta_value else C["negative"]
+    ), unsafe_allow_html=True)
 
-# 2. Margin
-c2.metric("Margin", f"${total_margin:,.0f}", delta=delta_margin)
+# 2. Margin (Converted to Custom HTML)
+with c2:
+    st.markdown(card_html(
+        "Margin", 
+        f"${total_margin:,.0f}", 
+        "Change", 
+        delta_margin
+    ), unsafe_allow_html=True)
 
-# 3. NEW: Combined Cash & Deposits Card
+# 3. Cash & Deposits
 with c3:
-    st.markdown(f"""
-    <div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px;">
-        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">CASH & DEPOSITS</div>
-        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">${total_cash:,.0f}</div>
-        <div style="font-size: 12px; color: {C["text_muted"]}; display: flex; flex-direction: column; gap: 4px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>Net Deposits</span>
-                <span style="color: {C["text"]}; font-weight: 600;">${net_deposits:,.0f}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>vs Prev Period</span>
-                <span style="color: {C["text_muted"]};">{delta_cash if delta_cash else '-'}</span>
-            </div>
-        </div>
+    extra_html = f"""
+    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+        <span style="color: {C["text_muted"]};">Net Deposits</span>
+        <span style="color: {C["text"]}; font-weight: 600;">${net_deposits:,.0f}</span>
     </div>
-    """, unsafe_allow_html=True)
+    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+        <span style="color: {C["text_muted"]};">vs Prev</span>
+        <span style="color: {C["text_muted"]};">{delta_cash if delta_cash else '-'}</span>
+    </div>
+    """
+    st.markdown(card_html("CASH & DEPOSITS", f"${total_cash:,.0f}", extra_row=extra_html), unsafe_allow_html=True)
 
-# 4. YTD Return (The Fixed Version)
+# 4. YTD Return
 with c4:
-    st.markdown(f"""
-    <div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px;">
-        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">YTD RETURN</div>
-        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{portfolio_ytd:+.1f}%</div>
-        <div style="font-size: 12px; color: {C["text_muted"]}; display: flex; flex-direction: column; gap: 4px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>vs SPY <span style="opacity:0.5; font-size: 10px;">({spy_return:+.1f}%)</span></span>
-                <span style="color: {ytd_color(portfolio_ytd - spy_return)}; font-weight: 600;">{portfolio_ytd - spy_return:+.1f}%</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>vs QQQ <span style="opacity:0.5; font-size: 10px;">({qqq_return:+.1f}%)</span></span>
-                <span style="color: {ytd_color(portfolio_ytd - qqq_return)}; font-weight: 600;">{portfolio_ytd - qqq_return:+.1f}%</span>
-            </div>
-        </div>
+    # Pre-calculate colors for the breakdown
+    spy_col = ytd_color(portfolio_ytd - spy_return)
+    qqq_col = ytd_color(portfolio_ytd - qqq_return)
+    
+    ytd_extra = f"""
+    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+        <span style="color: {C["text_muted"]};">vs SPY <span style="opacity:0.5; font-size: 10px;">({spy_return:+.1f}%)</span></span>
+        <span style="color: {spy_col}; font-weight: 600;">{portfolio_ytd - spy_return:+.1f}%</span>
     </div>
-    """, unsafe_allow_html=True)
+    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+        <span style="color: {C["text_muted"]};">vs QQQ <span style="opacity:0.5; font-size: 10px;">({qqq_return:+.1f}%)</span></span>
+        <span style="color: {qqq_col}; font-weight: 600;">{portfolio_ytd - qqq_return:+.1f}%</span>
+    </div>
+    """
+    st.markdown(card_html("YTD RETURN", f"{portfolio_ytd:+.1f}%", extra_row=ytd_extra), unsafe_allow_html=True)
 
-# Value attribution footer
+# Footer
 if len(dates_sorted) >= 1:
     st.caption(f"Period Change: **${total_change:+,.0f}** = Market Returns **${market_returns:+,.0f}** + Net Deposits **${net_deposits:+,.0f}**")
 
