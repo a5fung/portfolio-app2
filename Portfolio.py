@@ -72,7 +72,28 @@ st.markdown(f"""
         font-feature-settings: "zero" 1;
     }}
 
-    /* 4. SPARKLINE GRID */
+    /* 4. FORCED HORIZONTAL ROW (The Fix for Screenshot 2) */
+    .flex-row {{
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 12px;
+        width: 100%;
+        margin-bottom: 16px;
+        overflow-x: hidden; /* Prevent horizontal scroll */
+    }}
+    
+    /* 5. METRIC LABELS & VALUES */
+    .sub-label {{ font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }}
+    .sub-val {{ font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #FFF; font-weight: 500; white-space: nowrap; }}
+    
+    /* Mobile text scaling for the row */
+    @media (max-width: 600px) {{
+        .sub-val {{ font-size: 14px; }} /* Slightly smaller on phone to fit 3 in a row */
+    }}
+
+    /* 6. SPARKLINE GRID */
     .spark-row {{
         display: grid;
         grid-template-columns: 1fr 60px 80px;
@@ -84,29 +105,21 @@ st.markdown(f"""
     .spark-label {{ font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
     .spark-val {{ font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FFF; text-align: right; }}
 
-    /* 5. NEW: MOBILE 2x2 GRID FOR METRICS */
+    /* 7. METRIC GRID (Header) */
     .metric-grid {{
         display: grid;
-        grid-template-columns: repeat(2, 1fr); /* Force 2 columns on mobile */
-        gap: 16px 24px; /* Row gap 16px, Col gap 24px */
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px 24px;
         margin-bottom: 24px;
     }}
-    /* On Desktop, switch to 4 columns */
-    @media (min-width: 768px) {{
-        .metric-grid {{ grid-template-columns: repeat(4, 1fr); }}
-    }}
+    @media (min-width: 768px) {{ .metric-grid {{ grid-template-columns: repeat(4, 1fr); }} }}
+    .metric-item {{ border-top: 1px solid #222; padding-top: 8px; }}
 
-    /* 6. COMPACT METRIC ITEM */
-    .metric-item {{
-        border-top: 1px solid #222;
-        padding-top: 8px;
-    }}
-    
-    /* 7. UI CLEANUP */
+    /* UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
     section[data-testid="stSidebar"] {{ background-color: #000000 !important; border-right: 1px solid #222; }}
     #MainMenu, footer, header {{ visibility: hidden; }}
-    .block-container {{ padding-top: 1.5rem !important; padding-bottom: 2rem !important; }}
+    .block-container {{ padding-top: 1.5rem !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -133,21 +146,22 @@ if not check_password():
 
 # --- CHART HELPERS ---
 def style_chart(fig, height=None):
+    # 1. Base Layout
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#666", size=10, family="JetBrains Mono"),
-        margin=dict(l=0, r=0, t=0, b=0),
+        margin=dict(l=0, r=0, t=10, b=0),
         
-        # INTERACTION LOCKS
-        dragmode=False,   # Disables box zoom / pan on drag
+        # 2. LOCK INTERACTIONS (The Fix)
+        dragmode=False,     # Disable panning/zooming via drag
         hovermode="x unified",
         
         xaxis=dict(
             showgrid=False, 
             showline=False, 
-            fixedrange=True, # STRICTLY DISABLE ZOOM
+            fixedrange=True, # Disable Zoom on X
             visible=True
         ),
         yaxis=dict(
@@ -155,12 +169,13 @@ def style_chart(fig, height=None):
             gridcolor="#222", 
             gridwidth=1, 
             showline=False,
-            fixedrange=True, # STRICTLY DISABLE ZOOM
+            fixedrange=True, # Disable Zoom on Y
             tickprefix="$"
         ),
         showlegend=False,
     )
-    # Global Config to hide the toolbar
+    
+    # 3. Remove the floating toolbar completely
     fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso2d", "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d"])
     
     if height: fig.update_layout(height=height)
@@ -896,93 +911,81 @@ with tab2:
     st.subheader("Account Performance")
 
     for i, account in enumerate(account_order):
+
         with st.container():
-            # 1. The Header (Clean, Minimal)
+            # Header
             st.markdown(f"#### {account}")
 
             acct_df = fdf[fdf["Account"] == account]
             daily = acct_df.groupby("Date")[
                 ["Total Value", "Cash", "Margin Balance", "YTD", "W/D"]
             ].sum().reset_index()
-
-            # Calculate "Invested" portion for the stack
             daily["Invested"] = daily["Total Value"] - daily["Cash"]
 
-            # 2. The Metrics (Floating above)
             latest_acct = acct_df.iloc[-1]
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Current Value", f"${latest_acct['Total Value']:,.0f}")
-            k2.metric("Net Deposits", f"${acct_df['W/D'].sum():,.0f}")
-            k3.metric("YTD Return", f"{latest_acct['YTD']:+.1f}%")
+            current_value = latest_acct["Total Value"]
+            current_ytd = latest_acct["YTD"]
+            acct_net_deposits = acct_df["W/D"].sum()
+            
+            # --- THE FIX: Custom HTML Row instead of st.columns ---
+            # This guarantees 3 items in one row on mobile
+            ytd_c = "#00D26A" if current_ytd >= 0 else "#F82C2C"
+            
+            st.markdown(f"""
+            <div class="flex-row">
+                <div>
+                    <div class="sub-label">Current Value</div>
+                    <div class="sub-val">${current_value:,.0f}</div>
+                </div>
+                <div style="text-align: center;">
+                    <div class="sub-label">Net Deposits</div>
+                    <div class="sub-val" style="color: #DDD;">${acct_net_deposits:,.0f}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div class="sub-label">YTD Return</div>
+                    <div class="sub-val" style="color: {ytd_c};">{current_ytd:+.1f}%</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            # ------------------------------------------------------
 
-            # 3. The "Composition" Chart
+            # The Chart (Code remains similar, but using locked style)
             fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-            # Layer 1: Cash (The Foundation - Dark Grey)
             fig.add_trace(go.Bar(
                 x=daily["Date"], y=daily["Cash"],
-                name="Cash",
-                marker_color="#27272A", # Dark Grey (Zinc-800)
-                marker_line_width=0,
-                opacity=0.8,
+                name="Cash", marker_color="#27272A", 
+                marker_line_width=0, opacity=0.8,
             ), secondary_y=False)
 
-            # Layer 2: Invested (The Growth Engine - Dark Green)
             fig.add_trace(go.Bar(
                 x=daily["Date"], y=daily["Invested"],
-                name="Invested",
-                marker_color="#064E3B", # Deep Green (Emerald-900)
-                marker_line_width=0,
-                opacity=0.9,
+                name="Invested", marker_color="#064E3B", 
+                marker_line_width=0, opacity=0.9,
             ), secondary_y=False)
 
-            # Layer 3: YTD Performance (The Signal - Neon)
-            # Dynamic color: Neon Green if positive, Neon Red if negative
-            curr_ytd = daily["YTD"].iloc[-1]
-            line_color = "#00D26A" if curr_ytd >= 0 else "#F82C2C"
+            curr_ytd_val = daily["YTD"].iloc[-1]
+            line_color = "#00D26A" if curr_ytd_val >= 0 else "#F82C2C"
             
             fig.add_trace(go.Scatter(
                 x=daily["Date"], y=daily["YTD"],
-                name="YTD %",
-                mode="lines",
+                name="YTD %", mode="lines",
                 line=dict(color=line_color, width=2),
-                # Add a subtle glow/shadow to the line
-                fill="tozeroy",
-                fillcolor=f"rgba({('0, 210, 106' if curr_ytd >= 0 else '248, 44, 44')}, 0.05)",
+                fill="tozeroy", fillcolor=f"rgba({('0, 210, 106' if curr_ytd_val >= 0 else '248, 44, 44')}, 0.05)",
             ), secondary_y=True)
 
-            # Style: The "Robinhood" Look
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                barmode="stack", # <--- CRITICAL: This merges the bars
-                margin=dict(l=0, r=0, t=10, b=0),
-                height=320,
-                showlegend=False, # Clean look
-                hovermode="x unified",
-                font=dict(family="Inter", size=11, color="#71717A"),
-            )
+            # Apply strict locked style
+            fig = style_chart(fig, height=280) # Slightly shorter for mobile
+            fig.update_layout(barmode="stack")
             
-            # Axes: Minimalist
-            fig.update_xaxes(showgrid=False, showline=False)
-            fig.update_yaxes(
-                title_text="", 
-                showgrid=True, gridcolor="#18181B", gridwidth=1, 
-                tickfont=dict(color="#52525B"),
-                secondary_y=False
-            )
-            fig.update_yaxes(
-                title_text="", 
-                showgrid=False, 
-                tickformat="+.1f", ticksuffix="%", 
-                tickfont=dict(color=line_color), # Axis matches line color
-                secondary_y=True
-            )
+            # Axis formatting
+            fig.update_yaxes(title_text="", showgrid=True, gridcolor="#18181B", gridwidth=1, tickfont=dict(color="#52525B"), secondary_y=False)
+            fig.update_yaxes(title_text="", showgrid=False, tickformat="+.1f", ticksuffix="%", tickfont=dict(color=line_color), secondary_y=True)
 
+            # Important: config=CHART_CONFIG ensures staticPlot=False but we disabled interactions in layout
             st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"perf_{i}")
-            st.divider()
-
+            
+            st.markdown('<div style="height: 24px; border-bottom: 1px solid #111; margin-bottom: 24px;"></div>', unsafe_allow_html=True)
 # ═══════════════════════════════════════════
 # TAB 3: ALLOCATION
 # ═══════════════════════════════════════════
