@@ -486,34 +486,61 @@ with spark_placeholder.container():
             f'</div>',
             unsafe_allow_html=True,
         )
-
-
+        
 # --- HEADER ---
 st.title("Portfolio Command Center")
 st.markdown(f'<div class="timestamp">Last updated: {load_time.strftime("%b %d, %Y  %I:%M %p")}</div>', unsafe_allow_html=True)
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Net Liquidity", f"${total_value:,.0f}", delta=delta_value)
-c2.metric("Cash", f"${total_cash:,.0f}", delta=delta_cash)
-c3.metric("Margin", f"${total_margin:,.0f}", delta=delta_margin)
-c4.metric("Net Deposits", f"${net_deposits:,.0f}")
+# Changed from 5 columns to 4
+c1, c2, c3, c4 = st.columns(4)
 
-# Combined YTD comparison card
-with c5:
+# 1. Net Liquidity
+c1.metric("Net Liquidity", f"${total_value:,.0f}", delta=delta_value)
+
+# 2. Margin
+c2.metric("Margin", f"${total_margin:,.0f}", delta=delta_margin)
+
+# 3. NEW: Combined Cash & Deposits Card
+with c3:
     st.markdown(f"""
     <div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px;">
-        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">YTD RETURN</div>
-        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{portfolio_ytd:+.1f}%</div>
-        <div style="font-size: 12px; color: {C["text_muted"]};">
-            SPY: <span style="color: {ytd_color(portfolio_ytd - spy_return)}; font-weight: 600;">{portfolio_ytd - spy_return:+.1f}%</span><br/>
-            QQQ: <span style="color: {ytd_color(portfolio_ytd - qqq_return)}; font-weight: 600;">{portfolio_ytd - qqq_return:+.1f}%</span>
+        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">CASH & DEPOSITS</div>
+        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">${total_cash:,.0f}</div>
+        <div style="font-size: 12px; color: {C["text_muted"]}; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Net Deposits</span>
+                <span style="color: {C["text"]}; font-weight: 600;">${net_deposits:,.0f}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>vs Prev Period</span>
+                <span style="color: {C["text_muted"]};">{delta_cash if delta_cash else '-'}</span>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-# Value attribution
+# 4. YTD Return (The Fixed Version)
+with c4:
+    st.markdown(f"""
+    <div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px;">
+        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">YTD RETURN</div>
+        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{portfolio_ytd:+.1f}%</div>
+        <div style="font-size: 12px; color: {C["text_muted"]}; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>vs SPY <span style="opacity:0.5; font-size: 10px;">({spy_return:+.1f}%)</span></span>
+                <span style="color: {ytd_color(portfolio_ytd - spy_return)}; font-weight: 600;">{portfolio_ytd - spy_return:+.1f}%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>vs QQQ <span style="opacity:0.5; font-size: 10px;">({qqq_return:+.1f}%)</span></span>
+                <span style="color: {ytd_color(portfolio_ytd - qqq_return)}; font-weight: 600;">{portfolio_ytd - qqq_return:+.1f}%</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Value attribution footer
 if len(dates_sorted) >= 1:
-    st.caption(f"Period Change: **${total_change:+,.0f}** = Market Returns **${market_returns:+,.0f}** + Net Deposits **${net_deposits:+,.0f}** · SPY: **{spy_return:+.1f}%** · QQQ: **{qqq_return:+.1f}%**")
+    st.caption(f"Period Change: **${total_change:+,.0f}** = Market Returns **${market_returns:+,.0f}** + Net Deposits **${net_deposits:+,.0f}**")
 
 st.markdown("")
 
