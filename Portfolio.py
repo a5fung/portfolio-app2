@@ -488,101 +488,74 @@ with spark_placeholder.container():
         )
         
 # --- HEADER ---
-import textwrap # Add this import if not at top, or just use simpler string formatting below
-
 st.title("Portfolio Command Center")
 st.markdown(f'<div class="timestamp">Last updated: {load_time.strftime("%b %d, %Y  %I:%M %p")}</div>', unsafe_allow_html=True)
 
-# Helper for uniform card styling (Fixed: Removed Indentation to prevent Code Block rendering)
-def card_html(label, value, delta_label=None, delta_val=None, delta_color=None, extra_row=None):
-    # Default delta color logic
-    if delta_val and not delta_color:
-        delta_color = C["text_muted"]
-        if isinstance(delta_val, str):
-            if "+" in delta_val: delta_color = C["positive"]
-            elif "-" in delta_val: delta_color = C["negative"]
-    
-    # Build the Delta/Sub-text row
-    sub_html = ""
-    if delta_val:
-        sub_html = f"""
-        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-            <span style="color: {C["text_muted"]};">{delta_label if delta_label else "vs Prev"}</span>
-            <span style="color: {delta_color}; font-weight: 600;">{delta_val}</span>
-        </div>
-        """
-    elif extra_row:
-        sub_html = extra_row
+# Helper: Generate the "Bubble" style for deltas
+def pill_html(value, color_key):
+    # Define colors for the pill background/text
+    if color_key == "positive":
+        bg = "rgba(34, 197, 94, 0.15)"  # Green tint
+        fg = C["positive"]
+    elif color_key == "negative":
+        bg = "rgba(239, 68, 68, 0.15)"  # Red tint
+        fg = C["negative"]
+    else:
+        bg = "rgba(148, 163, 184, 0.15)" # Grey tint
+        fg = C["text_muted"]
+        
+    return f'<span style="background: {bg}; color: {fg}; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 12px;">{value}</span>'
 
-    # NOTE: No indentation in the string below to avoid Markdown code-block interpretation
-    return f"""
-<div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;">
-    <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">{label}</div>
-    <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{value}</div>
-    <div style="display: flex; flex-direction: column; gap: 4px;">
-        {sub_html}
-    </div>
-</div>
-"""
+# Helper: Card Container
+def card_html(label, value, rows):
+    # Flattened HTML to prevent Markdown rendering errors
+    content = "".join(rows)
+    return f'<div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; height: 100%;"><div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">{label}</div><div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{value}</div><div style="display: flex; flex-direction: column; gap: 6px;">{content}</div></div>'
 
 # Columns
 c1, c2, c3, c4 = st.columns(4)
 
 # 1. Net Liquidity
 with c1:
-    st.markdown(card_html(
-        "Net Liquidity", 
-        f"${total_value:,.0f}", 
-        "vs Prev Period", 
-        delta_value, 
-        C["positive"] if delta_value and "+" in delta_value else C["negative"]
-    ), unsafe_allow_html=True)
+    delta_type = "positive" if delta_value and "+" in delta_value else "negative"
+    pill = pill_html(delta_value, delta_type) if delta_value else "-"
+    row = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs Prev Period</span>{pill}</div>'
+    st.markdown(card_html("Net Liquidity", f"${total_value:,.0f}", [row]), unsafe_allow_html=True)
 
 # 2. Margin
 with c2:
-    st.markdown(card_html(
-        "Margin", 
-        f"${total_margin:,.0f}", 
-        "Change", 
-        delta_margin
-    ), unsafe_allow_html=True)
+    pill = pill_html(delta_margin, "text_muted") if delta_margin else "-"
+    row = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">Change</span>{pill}</div>'
+    st.markdown(card_html("Margin", f"${total_margin:,.0f}", [row]), unsafe_allow_html=True)
 
 # 3. Cash & Deposits
 with c3:
-    extra_html = f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-        <span style="color: {C["text_muted"]};">Net Deposits</span>
-        <span style="color: {C["text"]}; font-weight: 600;">${net_deposits:,.0f}</span>
-    </div>
-    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-        <span style="color: {C["text_muted"]};">vs Prev</span>
-        <span style="color: {C["text_muted"]};">{delta_cash if delta_cash else '-'}</span>
-    </div>
-    """
-    st.markdown(card_html("CASH & DEPOSITS", f"${total_cash:,.0f}", extra_row=extra_html), unsafe_allow_html=True)
+    # Row 1: Net Deposits
+    r1 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">Net Deposits</span><span style="color: {C["text"]}; font-weight: 600;">${net_deposits:,.0f}</span></div>'
+    # Row 2: vs Prev (Pill)
+    delta_type = "text_muted" # Default to grey for cash unless you want logic
+    pill = pill_html(delta_cash, delta_type) if delta_cash else "-"
+    r2 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs Prev</span>{pill}</div>'
+    st.markdown(card_html("CASH & DEPOSITS", f"${total_cash:,.0f}", [r1, r2]), unsafe_allow_html=True)
 
 # 4. YTD Return
 with c4:
-    # Pre-calculate colors for the breakdown
-    spy_col = ytd_color(portfolio_ytd - spy_return)
-    qqq_col = ytd_color(portfolio_ytd - qqq_return)
+    # SPY Row
+    spy_diff = portfolio_ytd - spy_return
+    spy_pill = pill_html(f"{spy_diff:+.1f}%", "positive" if spy_diff >= 0 else "negative")
+    r1 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs SPY <span style="opacity:0.5; font-size: 10px;">({spy_return:+.1f}%)</span></span>{spy_pill}</div>'
     
-    ytd_extra = f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-        <span style="color: {C["text_muted"]};">vs SPY <span style="opacity:0.5; font-size: 10px;">({spy_return:+.1f}%)</span></span>
-        <span style="color: {spy_col}; font-weight: 600;">{portfolio_ytd - spy_return:+.1f}%</span>
-    </div>
-    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-        <span style="color: {C["text_muted"]};">vs QQQ <span style="opacity:0.5; font-size: 10px;">({qqq_return:+.1f}%)</span></span>
-        <span style="color: {qqq_col}; font-weight: 600;">{portfolio_ytd - qqq_return:+.1f}%</span>
-    </div>
-    """
-    st.markdown(card_html("YTD RETURN", f"{portfolio_ytd:+.1f}%", extra_row=ytd_extra), unsafe_allow_html=True)
+    # QQQ Row
+    qqq_diff = portfolio_ytd - qqq_return
+    qqq_pill = pill_html(f"{qqq_diff:+.1f}%", "positive" if qqq_diff >= 0 else "negative")
+    r2 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs QQQ <span style="opacity:0.5; font-size: 10px;">({qqq_return:+.1f}%)</span></span>{qqq_pill}</div>'
+    
+    st.markdown(card_html("YTD RETURN", f"{portfolio_ytd:+.1f}%", [r1, r2]), unsafe_allow_html=True)
 
 # Footer
 if len(dates_sorted) >= 1:
     st.caption(f"Period Change: **${total_change:+,.0f}** = Market Returns **${market_returns:+,.0f}** + Net Deposits **${net_deposits:+,.0f}**")
-
+    
 st.markdown("")
 
 # --- TABS (3 tabs: Overview merged with Risk) ---
