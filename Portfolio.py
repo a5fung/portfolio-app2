@@ -116,11 +116,66 @@ st.markdown(f"""
     @media (min-width: 768px) {{ .metric-grid {{ grid-template-columns: repeat(4, 1fr); }} }}
     .metric-item {{ border-top: 1px solid {C["border"]}; padding-top: 8px; }}
 
+    /* 8. QUICK RANGE PILLS — text only, Robinhood style */
+    .stMainBlockContainer [data-testid="stRadio"] > label {{ display: none !important; }}
+    .stMainBlockContainer [data-testid="stRadio"] > div {{
+        gap: 0 !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+    }}
+    .stMainBlockContainer [data-testid="stRadio"] > div > label {{
+        flex: 1 !important;
+        text-align: center !important;
+        justify-content: center !important;
+        background: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        padding: 10px 0 !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        color: {C["text_dim"]} !important;
+        white-space: nowrap !important;
+        cursor: pointer !important;
+        transition: color 0.15s ease !important;
+        min-height: 44px !important;
+    }}
+    .stMainBlockContainer [data-testid="stRadio"] > div > label:has(input:checked) {{
+        color: {C["text"]} !important;
+        font-weight: 700 !important;
+    }}
+    .stMainBlockContainer [data-testid="stRadio"] > div > label p {{
+        color: inherit !important;
+    }}
+
+    /* 9. TABS */
+    button[data-baseweb="tab"] {{
+        background-color: transparent !important;
+        color: {C["text_dim"]} !important;
+        font-weight: 600 !important;
+        font-size: 13px !important;
+        padding: 12px 16px !important;
+        letter-spacing: 0.04em !important;
+    }}
+    button[data-baseweb="tab"][aria-selected="true"] {{
+        color: {C["text"]} !important;
+        border-bottom: 2px solid {C["primary"]} !important;
+    }}
+    [data-baseweb="tab-list"] {{
+        border-bottom: 1px solid {C["border"]} !important;
+        gap: 0 !important;
+    }}
+
     /* UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
     section[data-testid="stSidebar"] {{ background-color: {C["bg"]} !important; border-right: 1px solid {C["border"]}; }}
     #MainMenu, footer, header {{ visibility: hidden; }}
     .block-container {{ padding-top: 1.5rem !important; }}
+
+    /* 10. MOBILE REFINEMENTS */
+    @media (max-width: 768px) {{
+        .block-container {{ padding-left: 1rem !important; padding-right: 1rem !important; }}
+        .metric-grid {{ gap: 12px 16px; }}
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -188,6 +243,24 @@ def ytd_color(val):
     return C["positive"] if val >= 0 else C["negative"]
 
 
+def _fmt(val):
+    """Compact dollar format: $1.2M, $234K, $5.3K, $900."""
+    if abs(val) >= 1e6:
+        return f"${val/1e6:.1f}M"
+    if abs(val) >= 1e3:
+        return f"${val/1e3:.0f}K"
+    return f"${val:,.0f}"
+
+
+def section_label(text):
+    """Render a thin, uppercase section label — native app style."""
+    st.markdown(
+        f'<div style="font-size: 11px; font-weight: 600; color: {C["text_dim"]}; '
+        f'text-transform: uppercase; letter-spacing: 0.1em; margin: 24px 0 8px 0;">{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def drawdown_chart(data, date_col="Date", value_col="Total Value", height=None, show_legend=True, show_labels=False):
     data = data.sort_values(date_col).copy()
     data["Peak"] = data[value_col].cummax()
@@ -239,9 +312,9 @@ def drawdown_chart(data, date_col="Date", value_col="Total Value", height=None, 
         vals = data[value_col].values
         text_arr = [""] * n
         if n >= 1:
-            text_arr[0] = f"${vals[0]:,.0f}"
+            text_arr[0] = _fmt(vals[0])
         if n >= 2:
-            text_arr[-1] = f"${vals[-1]:,.0f}"
+            text_arr[-1] = _fmt(vals[-1])
         value_trace.update(
             mode="lines+markers+text",
             text=text_arr,
@@ -707,22 +780,20 @@ def _on_quick_range_change():
 qr_options = ["1W", "1M", "3M", "YTD", "1Y", "All"]
 current_idx = qr_options.index(st.session_state.quick_range) if st.session_state.quick_range in qr_options else None
 
-qr_col1, qr_col2 = st.columns([1, 2])
-with qr_col1:
-    if current_idx is not None:
-        st.radio(
-            "Time Range", qr_options, index=current_idx,
-            horizontal=True, key="_quick_range_radio",
-            on_change=_on_quick_range_change, label_visibility="collapsed",
-        )
-    else:
-        st.radio(
-            "Time Range", qr_options, index=3,
-            horizontal=True, key="_quick_range_radio",
-            on_change=_on_quick_range_change, label_visibility="collapsed",
-        )
+if current_idx is not None:
+    st.radio(
+        "Time Range", qr_options, index=current_idx,
+        horizontal=True, key="_quick_range_radio",
+        on_change=_on_quick_range_change, label_visibility="collapsed",
+    )
+else:
+    st.radio(
+        "Time Range", qr_options, index=3,
+        horizontal=True, key="_quick_range_radio",
+        on_change=_on_quick_range_change, label_visibility="collapsed",
+    )
 
-st.markdown("")
+st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
 # --- TABS (3 tabs: Overview merged with Risk) ---
 tab1, tab2, tab3 = st.tabs(["Overview", "Performance", "Allocation"])
@@ -731,7 +802,7 @@ tab1, tab2, tab3 = st.tabs(["Overview", "Performance", "Allocation"])
 # TAB 1: OVERVIEW + RISK
 # ═══════════════════════════════════════════
 with tab1:
-    st.subheader("Portfolio Growth")
+    section_label("Portfolio Growth")
     trend = fdf.groupby("Date")["Total Value"].sum().reset_index()
 
     fig = go.Figure()
@@ -758,7 +829,7 @@ with tab1:
 
     # Benchmark Comparison
     if not benchmark_df_ytd.empty and len(benchmark_df_ytd) > 1:
-        st.subheader("YTD vs Benchmarks")
+        section_label("YTD vs Benchmarks")
         ytd_portfolio = df[(df["Date"] >= ytd_start) & (df["Date"] <= ytd_end)]
         if not ytd_portfolio.empty:
             port_daily = ytd_portfolio.groupby("Date")["Total Value"].sum().reset_index()
@@ -796,13 +867,13 @@ with tab1:
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
     # --- Global Risk Monitor ---
-    st.subheader("Risk Monitor")
+    section_label("Risk Monitor")
     
     # 1. Overall Portfolio Risk
     daily_totals = fdf.groupby("Date")["Total Value"].sum().reset_index()
     fig_risk = drawdown_chart(daily_totals, height=300, show_labels=True)
     add_annotation_markers(fig_risk, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
-    st.markdown("**Total Portfolio Drawdown**")
+    st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Total Portfolio</div>', unsafe_allow_html=True)
     st.plotly_chart(fig_risk, use_container_width=True, config=CHART_CONFIG, key="ov_risk")
 
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True) # Spacer
@@ -813,7 +884,7 @@ with tab1:
     # GROWTH RISK
     daily_growth = fdf[fdf["Bucket"] == "Growth"].groupby("Date")["Total Value"].sum().reset_index()
     if not daily_growth.empty:
-        st.markdown("**Growth Bucket Risk**")
+        st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Growth Bucket</div>', unsafe_allow_html=True)
         fig_growth = drawdown_chart(daily_growth, height=300, show_labels=True)
         # We can add a specific color override if you want Growth to look 'hotter', 
         # but for now we keep the uniform "HUD" style.
@@ -823,7 +894,7 @@ with tab1:
     # STABLE RISK
     daily_stable = fdf[fdf["Bucket"] == "Stable"].groupby("Date")["Total Value"].sum().reset_index()
     if not daily_stable.empty:
-        st.markdown("**Stable Bucket Risk**")
+        st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Stable Bucket</div>', unsafe_allow_html=True)
         fig_stable = drawdown_chart(daily_stable, height=300, show_labels=True)
         st.plotly_chart(fig_stable, use_container_width=True, config=CHART_CONFIG, key="risk_stable")
 
@@ -833,7 +904,7 @@ with tab1:
 # ═══════════════════════════════════════════
 with tab2:
     # --- Performance Attribution Table ---
-    st.subheader("Performance Attribution")
+    section_label("Performance Attribution")
     _attr_rows = []
     _first_date = fdf["Date"].min()
     _last_date = fdf["Date"].max()
@@ -858,18 +929,34 @@ with tab2:
 
     _attr_df = pd.DataFrame(_attr_rows).sort_values("Current Value", ascending=False)
 
-    _attr_display = _attr_df.copy()
-    _attr_display["Start Value"] = _attr_display["Start Value"].apply(lambda x: f"${x:,.0f}")
-    _attr_display["Current Value"] = _attr_display["Current Value"].apply(lambda x: f"${x:,.0f}")
-    _attr_display["$ Change"] = _attr_display["$ Change"].apply(lambda x: f"${x:+,.0f}")
-    _attr_display["% Change"] = _attr_display["% Change"].apply(lambda x: f"{x:+.1f}%")
-    _attr_display["Contribution"] = _attr_display["Contribution"].apply(lambda x: f"{x:.1f}%")
-
-    st.dataframe(_attr_display, use_container_width=True, hide_index=True)
-    st.markdown("")
+    # Custom HTML table — mobile-friendly, 4 essential columns
+    _thead = (
+        f'<tr style="border-bottom: 1px solid {C["border"]};">'
+        f'<th style="text-align: left; padding: 6px 8px 6px 0; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase; letter-spacing: 0.05em;">Account</th>'
+        f'<th style="text-align: right; padding: 6px 8px; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase; letter-spacing: 0.05em;">Value</th>'
+        f'<th style="text-align: right; padding: 6px 8px; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase; letter-spacing: 0.05em;">Change</th>'
+        f'<th style="text-align: right; padding: 6px 0 6px 8px; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase; letter-spacing: 0.05em;">Contrib</th>'
+        f'</tr>'
+    )
+    _trows = ""
+    for _, row in _attr_df.iterrows():
+        chg_color = C["positive"] if row["% Change"] >= 0 else C["negative"]
+        _trows += (
+            f'<tr style="border-bottom: 1px solid {C["surface"]};">'
+            f'<td style="padding: 8px 8px 8px 0; font-size: 13px; font-weight: 500; color: {C["text"]};">{row["Account"]}</td>'
+            f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {C["text_sec"]};">{_fmt(row["Current Value"])}</td>'
+            f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {chg_color};">{row["% Change"]:+.1f}%</td>'
+            f'<td class="mono" style="text-align: right; padding: 8px 0 8px 8px; font-size: 13px; color: {C["text_muted"]};">{row["Contribution"]:.0f}%</td>'
+            f'</tr>'
+        )
+    st.markdown(
+        f'<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">'
+        f'<thead>{_thead}</thead><tbody>{_trows}</tbody></table>',
+        unsafe_allow_html=True,
+    )
 
     # --- Normalized Account Comparison ---
-    st.subheader("Normalized Comparison (Rebased to 100)")
+    section_label("Normalized Comparison")
     _NORM_COLORS = [
         "#3B82F6",  # blue
         "#EF4444",  # red
@@ -908,13 +995,12 @@ with tab2:
     st.plotly_chart(fig_norm, use_container_width=True, config=CHART_CONFIG, key="perf_norm")
     st.markdown("")
 
-    st.subheader("Account Performance")
+    section_label("Account Performance")
 
     for i, account in enumerate(account_order):
 
         with st.container():
-            # Header
-            st.markdown(f"#### {account}")
+            st.markdown(f'<div style="font-size: 14px; font-weight: 600; color: {C["text"]}; letter-spacing: 0.02em; margin-bottom: 4px;">{account}</div>', unsafe_allow_html=True)
 
             acct_df = fdf[fdf["Account"] == account]
             daily = acct_df.groupby("Date")[
@@ -991,7 +1077,7 @@ with tab3:
     col_chart, col_table = st.columns([1, 1])
 
     with col_chart:
-        st.subheader("Breakdown")
+        section_label("Breakdown")
         fig_sun = px.sunburst(
             latest, path=["Bucket", "Account"], values="Total Value",
             color_discrete_sequence=ACCENT_RAMP,
@@ -1008,7 +1094,7 @@ with tab3:
         st.plotly_chart(fig_sun, use_container_width=True, config=CHART_CONFIG, key="alloc_sun")
 
     with col_table:
-        st.subheader("By Bucket")
+        section_label("By Bucket")
         pivot = latest.groupby("Bucket")[["Total Value", "Cash"]].sum()
         pivot = pivot.sort_values("Total Value", ascending=False).reset_index()
         pivot["Allocation"] = (pivot["Total Value"] / total_value * 100)
@@ -1023,7 +1109,7 @@ with tab3:
         )
 
     # Bucket allocation over time
-    st.subheader("Bucket Allocation Over Time")
+    section_label("Allocation Over Time")
     bucket_trend = fdf.groupby(["Date", "Bucket"])["Total Value"].sum().reset_index()
     date_totals = bucket_trend.groupby("Date")["Total Value"].sum().rename("DateTotal")
     bucket_trend = bucket_trend.join(date_totals, on="Date")
