@@ -72,35 +72,41 @@ st.markdown(f"""
         font-feature-settings: "zero" 1;
     }}
 
-    /* 4. SPARKLINE GRID (The Fix) */
-    /* We use CSS Grid to force perfect columns regardless of text length */
+    /* 4. SPARKLINE GRID */
     .spark-row {{
         display: grid;
-        grid-template-columns: 1fr 60px 80px; /* Name takes space | Chart is 60px | Value is 80px */
+        grid-template-columns: 1fr 60px 80px;
         align-items: center;
         gap: 12px;
         padding: 8px 0;
         border-bottom: 1px solid #111;
     }}
-    .spark-label {{
-        font-size: 12px;
-        color: #888;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+    .spark-label {{ font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .spark-val {{ font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #FFF; text-align: right; }}
+
+    /* 5. NEW: MOBILE 2x2 GRID FOR METRICS */
+    .metric-grid {{
+        display: grid;
+        grid-template-columns: repeat(2, 1fr); /* Force 2 columns on mobile */
+        gap: 16px 24px; /* Row gap 16px, Col gap 24px */
+        margin-bottom: 24px;
     }}
-    .spark-val {{
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 12px;
-        color: #FFF;
-        text-align: right;
+    /* On Desktop, switch to 4 columns */
+    @media (min-width: 768px) {{
+        .metric-grid {{ grid-template-columns: repeat(4, 1fr); }}
+    }}
+
+    /* 6. COMPACT METRIC ITEM */
+    .metric-item {{
+        border-top: 1px solid #222;
+        padding-top: 8px;
     }}
     
-    /* 5. UI CLEANUP */
+    /* 7. UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
     section[data-testid="stSidebar"] {{ background-color: #000000 !important; border-right: 1px solid #222; }}
     #MainMenu, footer, header {{ visibility: hidden; }}
-    .block-container {{ padding-top: 3rem !important; }}
+    .block-container {{ padding-top: 1.5rem !important; padding-bottom: 2rem !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -131,13 +137,32 @@ def style_chart(fig, height=None):
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#666", size=10, family="JetBrains Mono"), # Monospace axis
+        font=dict(color="#666", size=10, family="JetBrains Mono"),
         margin=dict(l=0, r=0, t=0, b=0),
-        xaxis=dict(showgrid=False, showline=False, visible=True), # Keep dates
-        yaxis=dict(showgrid=True, gridcolor="#222", gridwidth=1, showline=False), # Very dark grid
+        
+        # INTERACTION LOCKS
+        dragmode=False,   # Disables box zoom / pan on drag
         hovermode="x unified",
+        
+        xaxis=dict(
+            showgrid=False, 
+            showline=False, 
+            fixedrange=True, # STRICTLY DISABLE ZOOM
+            visible=True
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor="#222", 
+            gridwidth=1, 
+            showline=False,
+            fixedrange=True, # STRICTLY DISABLE ZOOM
+            tickprefix="$"
+        ),
         showlegend=False,
     )
+    # Global Config to hide the toolbar
+    fig.update_layout(modebar_remove=["zoom", "pan", "select", "lasso2d", "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d"])
+    
     if height: fig.update_layout(height=height)
     return fig
 
@@ -531,96 +556,65 @@ with spark_placeholder.container():
         
 # --- HEADER: THE HUD (Responsive) ---
 # 1. The "Hero" Row
-c_hero, c_delta = st.columns([1.5, 2]) # Adjusted ratio for better mobile spacing
+c_hero, c_delta = st.columns([1.5, 2])
 
 with c_hero:
     st.markdown(f"""
     <div style="margin-bottom: 4px;">
-        <span style="font-size: 11px; color: #666; letter-spacing: 0.15em; text-transform: uppercase; white-space: nowrap;">Net Liquidity</span>
+        <span style="font-size: 10px; color: #666; letter-spacing: 0.15em; text-transform: uppercase; white-space: nowrap;">Net Liquidity</span>
     </div>
     <div class="mono" style="
-        font-size: clamp(36px, 6vw, 64px); /* Scales between 36px and 64px */
-        font-weight: 700; 
-        color: #FFF; 
-        line-height: 1.1; 
-        white-space: nowrap; /* Never break to two lines */
-        letter-spacing: -0.04em;
+        font-size: clamp(32px, 8vw, 64px); /* Slightly smaller clamp for tighter mobile fit */
+        font-weight: 700; color: #FFF; line-height: 1.1; white-space: nowrap; letter-spacing: -0.04em;
     ">
         ${total_value:,.0f}
     </div>
     """, unsafe_allow_html=True)
 
 with c_delta:
-    # Logic for colors
     is_pos = "+" in str(delta_value) if delta_value else False
     d_color = "#00D26A" if is_pos else "#F82C2C"
     
-    # We use a flex container that wraps gracefully on tiny screens
     st.markdown(f"""
-    <div style="
-        height: 100%; 
-        min-height: 76px; 
-        display: flex; 
-        align-items: flex-end; 
-        gap: 24px; 
-        padding-bottom: 6px;
-        flex-wrap: wrap; /* Safe wrapping for mobile */
-    ">
+    <div style="height: 100%; min-height: 60px; display: flex; align-items: flex-end; gap: 16px; padding-bottom: 4px; flex-wrap: wrap;">
         <div>
-            <div style="font-size: 10px; color: #666; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
-            <div class="mono" style="font-size: clamp(18px, 2.5vw, 24px); color: {d_color}; white-space: nowrap;">
-                {delta_value}
-            </div>
+            <div style="font-size: 9px; color: #666; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
+            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {d_color}; white-space: nowrap;">{delta_value}</div>
         </div>
-        <div style="width: 1px; height: 30px; background: #333; opacity: 0.5; margin-bottom: 4px;"></div> <div>
-            <div style="font-size: 10px; color: #666; margin-bottom: 2px; text-transform: uppercase;">YTD Return</div>
-            <div class="mono" style="font-size: clamp(18px, 2.5vw, 24px); color: {ytd_color(portfolio_ytd)}; white-space: nowrap;">
-                {portfolio_ytd:+.1f}%
-            </div>
+        <div style="width: 1px; height: 24px; background: #333; opacity: 0.5; margin-bottom: 4px;"></div>
+        <div>
+            <div style="font-size: 9px; color: #666; margin-bottom: 2px; text-transform: uppercase;">YTD Return</div>
+            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {ytd_color(portfolio_ytd)}; white-space: nowrap;">{portfolio_ytd:+.1f}%</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-st.markdown('<div style="height: 32px;"></div>', unsafe_allow_html=True) # Spacer
+st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
-# 2. The "Data Strip": Secondary Metrics
-# We use st.columns which automatically stack on mobile
-m1, m2, m3, m4 = st.columns(4)
+# 2. THE COMPACT METRIC GRID (2x2 on Mobile)
+alpha = portfolio_ytd - spy_return
+alpha_col = "#00D26A" if alpha >= 0 else "#F82C2C"
 
-def metric_strip(label, value, sub=None):
-    sub_html = f'<span style="color: #666; font-size: 12px; margin-left: 6px;">{sub}</span>' if sub else ""
-    return f"""
-    <div style="
-        border-top: 1px solid #222; 
-        padding-top: 12px; 
-        margin-bottom: 16px; /* Spacing for mobile stack */
-    ">
-        <div style="font-size: 10px; color: #666; letter-spacing: 0.05em; margin-bottom: 4px;">{label.upper()}</div>
-        <div class="mono" style="font-size: 18px; color: #DDD;">
-            {value} {sub_html}
-        </div>
+st.markdown(f"""
+<div class="metric-grid">
+    <div class="metric-item">
+        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">BUYING POWER</div>
+        <div class="mono" style="font-size: 16px; color: #DDD;">${total_cash:,.0f}</div>
     </div>
-    """
-
-with m1:
-    st.markdown(metric_strip("Cash Position", f"${total_cash:,.0f}"), unsafe_allow_html=True)
-with m2:
-    st.markdown(metric_strip("Margin Used", f"${total_margin:,.0f}"), unsafe_allow_html=True)
-with m3:
-    st.markdown(metric_strip("Net Deposits", f"${net_deposits:,.0f}"), unsafe_allow_html=True)
-with m4:
-    alpha = portfolio_ytd - spy_return
-    alpha_col = "#00D26A" if alpha >= 0 else "#F82C2C"
-    st.markdown(f"""
-    <div style="border-top: 1px solid #222; padding-top: 12px; margin-bottom: 16px;">
-        <div style="font-size: 10px; color: #666; letter-spacing: 0.05em; margin-bottom: 4px;">ALPHA (vs SPY)</div>
-        <div class="mono" style="font-size: 18px; color: {alpha_col};">
-            {alpha:+.1f}%
-        </div>
+    <div class="metric-item">
+        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">MARGIN USED</div>
+        <div class="mono" style="font-size: 16px; color: #DDD;">${total_margin:,.0f}</div>
     </div>
-    """, unsafe_allow_html=True)
-
-st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+    <div class="metric-item">
+        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">NET DEPOSITS</div>
+        <div class="mono" style="font-size: 16px; color: #DDD;">${net_deposits:,.0f}</div>
+    </div>
+    <div class="metric-item">
+        <div style="font-size: 9px; color: #666; letter-spacing: 0.05em; margin-bottom: 2px;">ALPHA (vs SPY)</div>
+        <div class="mono" style="font-size: 16px; color: {alpha_col};">{alpha:+.1f}%</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # --- DRAWDOWN ALERT BANNER & SYSTEM STATUS ---
 # 1. Calculate Overall Portfolio Drawdown
