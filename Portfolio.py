@@ -8,8 +8,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import yfinance as yf
+import json
+from pathlib import Path
 
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio Dashboard", layout="wide", page_icon="◆")
@@ -111,6 +113,45 @@ st.markdown(f"""
     .timestamp {{
         font-size: 12px; color: {C["text_muted"]} !important;
         text-align: right; padding: 4px 0 12px 0;
+    }}
+
+    /* Quick range pill buttons */
+    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] > div {{
+        gap: 0 !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label {{
+        background: {C["surface"]} !important;
+        border: 1px solid {C["border"]} !important;
+        border-radius: 0 !important;
+        padding: 6px 16px !important;
+        cursor: pointer !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: {C["text_muted"]} !important;
+        transition: all 0.15s ease !important;
+        flex: 1 0 auto !important;
+        text-align: center !important;
+        justify-content: center !important;
+        white-space: nowrap !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label:first-of-type {{
+        border-radius: 8px 0 0 8px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label:last-of-type {{
+        border-radius: 0 8px 8px 0 !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label:has(input:checked) {{
+        background: {C["primary"]} !important;
+        border-color: {C["primary"]} !important;
+        color: white !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label p {{
+        color: inherit !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] > label {{
+        display: none !important;
     }}
 
     /* Hide chrome */
@@ -261,6 +302,33 @@ def make_sparkline_svg(values, color=None, width=80, height=24):
     return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}"><polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 
 
+def add_annotation_markers(fig, date_min, date_max, annotations):
+    """Add vertical dashed lines + text labels for annotations within date range."""
+    if not annotations:
+        return fig
+    for date_str, text in annotations.items():
+        try:
+            ann_dt = pd.to_datetime(date_str)
+        except Exception:
+            continue
+        if ann_dt < pd.to_datetime(date_min) or ann_dt > pd.to_datetime(date_max):
+            continue
+        label = text[:30] + ("..." if len(text) > 30 else "")
+        fig.add_vline(
+            x=ann_dt.timestamp() * 1000,
+            line_dash="dash", line_color=C["warning"], line_width=1.5,
+            opacity=0.7,
+        )
+        fig.add_annotation(
+            x=ann_dt, y=1, yref="paper", yanchor="bottom",
+            text=label, showarrow=False,
+            font=dict(color=C["warning"], size=10),
+            bgcolor=C["surface2"], bordercolor=C["warning"],
+            borderwidth=1, borderpad=3, opacity=0.9,
+        )
+    return fig
+
+
 # --- DATA ---
 @st.cache_data(ttl=DATA_CACHE_TTL)
 def load_data():
@@ -347,6 +415,14 @@ if not validate_data(df):
     st.stop()
 
 
+# --- SESSION STATE ---
+if "quick_range" not in st.session_state:
+    st.session_state.quick_range = "YTD"
+
+def _on_date_picker_change():
+    """Clear quick range when user manually picks dates."""
+    st.session_state.quick_range = None
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### Filters")
@@ -357,12 +433,13 @@ with st.sidebar:
 
     min_date = df["Date"].min().date()
     max_date = df["Date"].max().date()
-    default_start = max(date(2026, 1, 1), min_date)
+    default_start = max(date(datetime.now().year, 1, 1), min_date)
 
     date_range = st.date_input(
         "Date Range",
         [default_start, max_date],
         min_value=min_date, max_value=max_date,
+        on_change=_on_date_picker_change,
     )
 
     st.markdown("---")
@@ -372,9 +449,22 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Annotations
+    # Annotations (persisted to JSON)
+    ANNOTATIONS_FILE = Path(__file__).parent / "annotations.json"
+
+    def _load_annotations():
+        if ANNOTATIONS_FILE.exists():
+            try:
+                return json.loads(ANNOTATIONS_FILE.read_text())
+            except (json.JSONDecodeError, OSError):
+                return {}
+        return {}
+
+    def _save_annotations(data):
+        ANNOTATIONS_FILE.write_text(json.dumps(data, indent=2))
+
     if "annotations" not in st.session_state:
-        st.session_state.annotations = {}
+        st.session_state.annotations = _load_annotations()
 
     with st.expander("📝 Annotations"):
         st.caption("Track important events")
@@ -386,6 +476,7 @@ with st.sidebar:
         if st.button("Add Note", use_container_width=True):
             if ann_text:
                 st.session_state.annotations[str(ann_date)] = ann_text
+                _save_annotations(st.session_state.annotations)
                 st.rerun()
 
         # Show existing annotations
@@ -402,13 +493,33 @@ with st.sidebar:
 
 
 # --- APPLY FILTERS ---
-if len(date_range) == 2:
-    start_date, end_date = date_range
-    fdf = df[(df["Date"] >= pd.to_datetime(start_date)) & (df["Date"] <= pd.to_datetime(end_date))]
-elif len(date_range) == 1:
+def _resolve_date_range(quick_range, date_range, min_date, max_date):
+    """Resolve start/end dates from quick range or sidebar picker."""
+    today = max_date
+    if quick_range:
+        ranges = {
+            "1W": today - timedelta(weeks=1),
+            "1M": today - timedelta(days=30),
+            "3M": today - timedelta(days=90),
+            "YTD": date(today.year, 1, 1),
+            "1Y": today - timedelta(days=365),
+            "All": min_date,
+        }
+        start = ranges.get(quick_range, min_date)
+        if isinstance(start, date):
+            start = max(start, min_date)
+        return start, today
+    if len(date_range) == 2:
+        return date_range[0], date_range[1]
+    return min_date, today
+
+active_start, active_end = _resolve_date_range(
+    st.session_state.quick_range, date_range, min_date, max_date
+)
+fdf = df[(df["Date"] >= pd.to_datetime(active_start)) & (df["Date"] <= pd.to_datetime(active_end))]
+
+if len(date_range) == 1 and not st.session_state.quick_range:
     st.warning("Select both start and end dates")
-    fdf = df
-else:
     fdf = df
 
 if fdf.empty:
@@ -421,8 +532,6 @@ current_year = datetime.now().year
 ytd_start = pd.Timestamp(current_year, 1, 1)
 ytd_end = pd.Timestamp(datetime.now().date())
 benchmark_df_ytd = load_benchmark(ytd_start, ytd_end)
-# Load filtered period for chart
-benchmark_df = load_benchmark(fdf["Date"].min(), fdf["Date"].max())
 
 # --- KEY METRICS ---
 latest = fdf[fdf["Date"] == fdf["Date"].max()]
@@ -466,7 +575,8 @@ if not benchmark_df_ytd.empty and len(benchmark_df_ytd) > 1:
     try:
         spy_return = ((benchmark_df_ytd["SPY"].iloc[-1] / benchmark_df_ytd["SPY"].iloc[0]) - 1) * 100
         qqq_return = ((benchmark_df_ytd["QQQ"].iloc[-1] / benchmark_df_ytd["QQQ"].iloc[0]) - 1) * 100
-    except:
+    except Exception as e:
+        st.warning(f"Could not calculate benchmark returns: {e}")
         spy_return = qqq_return = 0
 
 # --- SIDEBAR SPARKLINES ---
@@ -554,8 +664,62 @@ with c4:
 
 # Footer
 if len(dates_sorted) >= 1:
-    st.caption(f"Period Change: **${total_change:+,.0f}** = Market Returns **${market_returns:+,.0f}** + Net Deposits **${net_deposits:+,.0f}**")
+    period_start = pd.Timestamp(dates_sorted[0]).strftime("%b %#d")
+    period_end = pd.Timestamp(dates_sorted[-1]).strftime("%b %#d")
+    st.caption(f"Change ({period_start} – {period_end}): **\\${total_change:+,.0f}** = Market Returns **\\${market_returns:+,.0f}** + Net Deposits **\\${net_deposits:+,.0f}**")
     
+# --- DRAWDOWN ALERT BANNER ---
+_all_time_totals = df.groupby("Date")["Total Value"].sum().sort_index()
+_all_time_peak = _all_time_totals.cummax().iloc[-1]
+_current_total = _all_time_totals.iloc[-1]
+_drawdown_pct = (1 - _current_total / _all_time_peak) * 100 if _all_time_peak > 0 else 0
+
+if _drawdown_pct > 15:
+    _peak_idx = _all_time_totals[_all_time_totals == _all_time_peak].index[-1]
+    st.markdown(
+        f'<div style="background: rgba(239,68,68,0.15); border: 1px solid {C["negative"]}; border-radius: 8px; '
+        f'padding: 12px 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">'
+        f'<span style="font-size: 18px;">🔴</span>'
+        f'<span style="color: {C["negative"]}; font-weight: 600; font-size: 14px;">'
+        f'Portfolio is {_drawdown_pct:.1f}% below peak — entered drawdown on {_peak_idx:%b %d, %Y}</span></div>',
+        unsafe_allow_html=True,
+    )
+elif _drawdown_pct > 7:
+    _peak_idx = _all_time_totals[_all_time_totals == _all_time_peak].index[-1]
+    st.markdown(
+        f'<div style="background: rgba(245,158,11,0.15); border: 1px solid {C["warning"]}; border-radius: 8px; '
+        f'padding: 12px 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">'
+        f'<span style="font-size: 18px;">🟡</span>'
+        f'<span style="color: {C["warning"]}; font-weight: 600; font-size: 14px;">'
+        f'Portfolio is {_drawdown_pct:.1f}% below peak — entered drawdown on {_peak_idx:%b %d, %Y}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown("")
+
+# --- QUICK RANGE BUTTONS ---
+def _on_quick_range_change():
+    """Update quick_range from radio selection."""
+    st.session_state.quick_range = st.session_state._quick_range_radio
+
+qr_options = ["1W", "1M", "3M", "YTD", "1Y", "All"]
+current_idx = qr_options.index(st.session_state.quick_range) if st.session_state.quick_range in qr_options else None
+
+qr_col1, qr_col2 = st.columns([1, 2])
+with qr_col1:
+    if current_idx is not None:
+        st.radio(
+            "Time Range", qr_options, index=current_idx,
+            horizontal=True, key="_quick_range_radio",
+            on_change=_on_quick_range_change, label_visibility="collapsed",
+        )
+    else:
+        st.radio(
+            "Time Range", qr_options, index=3,
+            horizontal=True, key="_quick_range_radio",
+            on_change=_on_quick_range_change, label_visibility="collapsed",
+        )
+
 st.markdown("")
 
 # --- TABS (3 tabs: Overview merged with Risk) ---
@@ -583,12 +747,49 @@ with tab1:
         textfont=dict(color=C["primary"], size=11),
     ))
     fig = style_chart(fig, height=350)
+    add_annotation_markers(fig, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="ov_growth")
+
+    # Benchmark Comparison
+    if not benchmark_df_ytd.empty and len(benchmark_df_ytd) > 1:
+        st.subheader("vs Benchmarks (YTD)")
+        # Build portfolio daily totals for YTD period
+        ytd_portfolio = df[(df["Date"] >= ytd_start) & (df["Date"] <= ytd_end)]
+        if not ytd_portfolio.empty:
+            port_daily = ytd_portfolio.groupby("Date")["Total Value"].sum().reset_index()
+            port_daily = port_daily.sort_values("Date")
+            port_daily["Portfolio"] = (port_daily["Total Value"] / port_daily["Total Value"].iloc[0] - 1) * 100
+
+            bench = benchmark_df_ytd.copy()
+            bench["SPY_pct"] = (bench["SPY"] / bench["SPY"].iloc[0] - 1) * 100
+            bench["QQQ_pct"] = (bench["QQQ"] / bench["QQQ"].iloc[0] - 1) * 100
+
+            fig_bench = go.Figure()
+            fig_bench.add_trace(go.Scatter(
+                x=port_daily["Date"], y=port_daily["Portfolio"],
+                name="Portfolio", line=dict(color=C["primary"], width=2.5),
+                mode="lines",
+            ))
+            fig_bench.add_trace(go.Scatter(
+                x=bench["Date"], y=bench["SPY_pct"],
+                name="SPY", line=dict(color=C["warning"], width=1.5, dash="dash"),
+                mode="lines",
+            ))
+            fig_bench.add_trace(go.Scatter(
+                x=bench["Date"], y=bench["QQQ_pct"],
+                name="QQQ", line=dict(color=C["positive"], width=1.5, dash="dash"),
+                mode="lines",
+            ))
+            fig_bench = style_chart(fig_bench, height=280)
+            fig_bench.update_yaxes(tickprefix="", ticksuffix="%", tickformat="+.1f")
+            fig_bench.update_layout(hovermode="x unified")
+            st.plotly_chart(fig_bench, use_container_width=True, config=CHART_CONFIG, key="ov_bench")
 
     # Global Risk Monitor
     st.subheader("Risk Monitor")
     daily_totals = fdf.groupby("Date")["Total Value"].sum().reset_index()
     fig_risk = drawdown_chart(daily_totals, height=300, show_labels=True)
+    add_annotation_markers(fig_risk, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.plotly_chart(fig_risk, use_container_width=True, config=CHART_CONFIG, key="ov_risk")
 
     # Per-account drawdown grid
@@ -615,6 +816,78 @@ with tab1:
 # TAB 2: PERFORMANCE
 # ═══════════════════════════════════════════
 with tab2:
+    # --- Performance Attribution Table ---
+    st.subheader("Performance Attribution")
+    _attr_rows = []
+    _first_date = fdf["Date"].min()
+    _last_date = fdf["Date"].max()
+    _first_snap = fdf[fdf["Date"] == _first_date]
+    _last_snap = fdf[fdf["Date"] == _last_date]
+    _total_dollar_change = _last_snap["Total Value"].sum() - _first_snap["Total Value"].sum()
+
+    for acct in account_order:
+        s_val = _first_snap.loc[_first_snap["Account"] == acct, "Total Value"].sum()
+        e_val = _last_snap.loc[_last_snap["Account"] == acct, "Total Value"].sum()
+        d_change = e_val - s_val
+        p_change = ((e_val / s_val) - 1) * 100 if s_val else 0
+        contrib = (d_change / _total_dollar_change) * 100 if _total_dollar_change else 0
+        _attr_rows.append({
+            "Account": acct,
+            "Start Value": s_val,
+            "Current Value": e_val,
+            "$ Change": d_change,
+            "% Change": p_change,
+            "Contribution": contrib,
+        })
+
+    _attr_df = pd.DataFrame(_attr_rows).sort_values("Current Value", ascending=False)
+
+    _attr_display = _attr_df.copy()
+    _attr_display["Start Value"] = _attr_display["Start Value"].apply(lambda x: f"${x:,.0f}")
+    _attr_display["Current Value"] = _attr_display["Current Value"].apply(lambda x: f"${x:,.0f}")
+    _attr_display["$ Change"] = _attr_display["$ Change"].apply(lambda x: f"${x:+,.0f}")
+    _attr_display["% Change"] = _attr_display["% Change"].apply(lambda x: f"{x:+.1f}%")
+    _attr_display["Contribution"] = _attr_display["Contribution"].apply(lambda x: f"{x:.1f}%")
+
+    st.dataframe(_attr_display, use_container_width=True, hide_index=True)
+    st.markdown("")
+
+    # --- Normalized Account Comparison ---
+    st.subheader("Normalized Comparison (Rebased to 100)")
+    _NORM_COLORS = [
+        "#3B82F6",  # blue
+        "#EF4444",  # red
+        "#22C55E",  # green
+        "#F59E0B",  # amber
+        "#A855F7",  # purple
+        "#EC4899",  # pink
+        "#06B6D4",  # cyan
+        "#F97316",  # orange
+    ]
+    fig_norm = go.Figure()
+    for idx, acct in enumerate(account_order):
+        acct_hist = fdf[fdf["Account"] == acct].groupby("Date")["Total Value"].sum().sort_index()
+        if len(acct_hist) < 2:
+            continue
+        base = acct_hist.iloc[0]
+        if base == 0:
+            continue
+        normalized = (acct_hist / base) * 100
+        fig_norm.add_trace(go.Scatter(
+            x=normalized.index, y=normalized.values,
+            name=acct, mode="lines",
+            line=dict(color=_NORM_COLORS[idx % len(_NORM_COLORS)], width=2.5),
+        ))
+    # Baseline at 100
+    fig_norm.add_hline(
+        y=100, line_dash="dot", line_color=C["text_muted"],
+        line_width=1, opacity=0.5,
+    )
+    fig_norm = style_chart(fig_norm, height=350)
+    fig_norm.update_yaxes(tickprefix="", tickformat=",.0f")
+    st.plotly_chart(fig_norm, use_container_width=True, config=CHART_CONFIG, key="perf_norm")
+    st.markdown("")
+
     st.subheader("Account Performance")
 
     for i, account in enumerate(account_order):
