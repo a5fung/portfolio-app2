@@ -488,16 +488,17 @@ with spark_placeholder.container():
         )
         
 # --- HEADER ---
+import textwrap # Add this import if not at top, or just use simpler string formatting below
+
 st.title("Portfolio Command Center")
 st.markdown(f'<div class="timestamp">Last updated: {load_time.strftime("%b %d, %Y  %I:%M %p")}</div>', unsafe_allow_html=True)
 
-# Helper for uniform card styling
+# Helper for uniform card styling (Fixed: Removed Indentation to prevent Code Block rendering)
 def card_html(label, value, delta_label=None, delta_val=None, delta_color=None, extra_row=None):
     # Default delta color logic
     if delta_val and not delta_color:
         delta_color = C["text_muted"]
-        if isinstance(delta_val, str) and "%" in delta_val:
-             # simplistic check for positive/negative in string
+        if isinstance(delta_val, str):
             if "+" in delta_val: delta_color = C["positive"]
             elif "-" in delta_val: delta_color = C["negative"]
     
@@ -513,27 +514,21 @@ def card_html(label, value, delta_label=None, delta_val=None, delta_color=None, 
     elif extra_row:
         sub_html = extra_row
 
+    # NOTE: No indentation in the string below to avoid Markdown code-block interpretation
     return f"""
-    <div style="
-        background: {C["surface"]}; 
-        border: 1px solid {C["border"]}; 
-        border-radius: 12px; 
-        padding: 16px 20px; 
-        margin-bottom: 16px;  /* <--- FIXES MOBILE SPACING */
-        height: 100%;
-    ">
-        <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">{label}</div>
-        <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{value}</div>
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-            {sub_html}
-        </div>
+<div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;">
+    <div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">{label}</div>
+    <div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{value}</div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+        {sub_html}
     </div>
-    """
+</div>
+"""
 
 # Columns
 c1, c2, c3, c4 = st.columns(4)
 
-# 1. Net Liquidity (Converted to Custom HTML)
+# 1. Net Liquidity
 with c1:
     st.markdown(card_html(
         "Net Liquidity", 
@@ -543,7 +538,7 @@ with c1:
         C["positive"] if delta_value and "+" in delta_value else C["negative"]
     ), unsafe_allow_html=True)
 
-# 2. Margin (Converted to Custom HTML)
+# 2. Margin
 with c2:
     st.markdown(card_html(
         "Margin", 
