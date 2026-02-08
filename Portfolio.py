@@ -14,29 +14,39 @@ import json
 from pathlib import Path
 
 # --- CONFIG ---
-st.set_page_config(page_title="Portfolio Dashboard", layout="wide", page_icon="◆")
+st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
 
 CHART_CONFIG = {"displayModeBar": False, "staticPlot": False, "scrollZoom": False}
 WARNING_THRESHOLD = 0.93
 DANGER_THRESHOLD = 0.85
 DATA_CACHE_TTL = 300  # 5 minutes
 
-# --- DARK PALETTE ---
+# --- ROBINHOOD-INSPIRED PALETTE ---
+# --- ROBINHOOD-INSPIRED PALETTE (Final) ---
 C = {
-    "bg":           "#0F1117",
-    "surface":      "#1A1D27",
-    "surface2":     "#232733",
-    "primary":      "#3B82F6",
-    "primary_dim":  "#1E3A5F",
-    "positive":     "#22C55E",
-    "positive_dim": "#16A34A",
-    "negative":     "#EF4444",
-    "negative_dim": "#DC2626",
-    "warning":      "#F59E0B",
-    "text":         "#F1F5F9",
-    "text_muted":   "#94A3B8",
-    "border":       "#2D3348",
-    "grid":         "#1E2235",
+    # Base Colors
+    "bg":           "#000000", # True Black
+    "surface":      "#111113", # Almost Black Card
+    "surface2":     "#18181B", # Hover state
+    
+    # Text (New & Old Keys mapped together)
+    "text":         "#FFFFFF", # Pure White
+    "text_sec":     "#A1A1AA", # Zinc-400 (Secondary)
+    "text_muted":   "#A1A1AA", # Zinc-400 (Old key mapped to new color)
+    "text_dim":     "#52525B", # Zinc-600 (Tertiary)
+    
+    # Status Colors
+    "primary":      "#00D26A", # Growth Green
+    "primary_dim":  "#00331B", # Dark Green (for bar charts)
+    "positive":     "#00D26A", 
+    "positive_dim": "#004D26",
+    "negative":     "#F82C2C", # Alert Red
+    "negative_dim": "#450A0A",
+    "warning":      "#F59E0B", # Amber
+    
+    # Structural
+    "border":       "#27272A", # Zinc-800
+    "grid":         "#18181B", # Very subtle grid
 }
 
 ACCENT_RAMP = [
@@ -47,119 +57,52 @@ ACCENT_RAMP = [
 # --- STYLES ---
 st.markdown(f"""
 <style>
-    .stApp {{ background-color: {C["bg"]} !important; }}
-    section[data-testid="stSidebar"] {{
-        background-color: {C["surface"]} !important;
-        border-right: 1px solid {C["border"]};
+    /* 1. FONTS */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+    /* 2. THE VOID */
+    .stApp {{
+        background-color: #000000 !important;
+        font-family: 'Inter', sans-serif !important;
+    }}
+    
+    /* 3. MONOSPACE NUMBERS */
+    .mono {{
+        font-family: 'JetBrains Mono', monospace !important;
+        font-feature-settings: "zero" 1;
     }}
 
-    /* Typography */
-    h1 {{ color: {C["text"]} !important; font-weight: 700 !important; letter-spacing: -0.025em !important; }}
-    h2, h3, h4 {{ color: {C["text"]} !important; font-weight: 600 !important; }}
-    p, li, div, span, label {{ color: {C["text"]} !important; }}
-
-    /* Tabs */
-    button[data-baseweb="tab"] {{
-        background-color: transparent !important;
-        color: {C["text_muted"]} !important;
-        font-weight: 600; font-size: 15px;
-        padding-bottom: 12px !important;
-    }}
-    button[data-baseweb="tab"][aria-selected="true"] {{
-        color: {C["primary"]} !important;
-        border-bottom: 2px solid {C["primary"]} !important;
-    }}
-
-    /* Metric cards */
-    [data-testid="stMetric"] {{
-        background: {C["surface"]};
-        border: 1px solid {C["border"]};
-        border-radius: 12px;
-        padding: 16px 20px;
-    }}
-    [data-testid="stMetricLabel"] {{
-        font-weight: 600; font-size: clamp(10px, 1.2vw, 13px);
-        text-transform: uppercase; letter-spacing: 0.04em;
-        color: {C["text_muted"]} !important;
-    }}
-    [data-testid="stMetricValue"] {{
-        font-weight: 700; color: {C["text"]} !important;
-        font-size: clamp(16px, 2.2vw, 28px) !important;
-        white-space: nowrap;
-        overflow: visible;
-    }}
-    [data-testid="stMetricDelta"] {{
-        font-size: clamp(10px, 1.1vw, 14px) !important;
-    }}
-
-    /* Dataframe */
-    .stDataFrame {{ background: {C["surface"]} !important; border-radius: 8px; }}
-
-    /* Dividers */
-    hr {{ border-color: {C["border"]} !important; opacity: 0.4; }}
-
-    /* Expander */
-    details {{ background: {C["surface"]} !important; border: 1px solid {C["border"]} !important; border-radius: 8px !important; }}
-
-    /* Sparkline container */
+    /* 4. SPARKLINE GRID (The Fix) */
+    /* We use CSS Grid to force perfect columns regardless of text length */
     .spark-row {{
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 6px 0; border-bottom: 1px solid {C["border"]};
+        display: grid;
+        grid-template-columns: 1fr 60px 80px; /* Name takes space | Chart is 60px | Value is 80px */
+        align-items: center;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid #111;
     }}
-    .spark-label {{ font-size: 12px; color: {C["text_muted"]} !important; font-weight: 600; }}
-    .spark-value {{ font-size: 13px; color: {C["text"]} !important; font-weight: 700; }}
-
-    /* Timestamp */
-    .timestamp {{
-        font-size: 12px; color: {C["text_muted"]} !important;
-        text-align: right; padding: 4px 0 12px 0;
+    .spark-label {{
+        font-size: 12px;
+        color: #888;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }}
-
-    /* Quick range pill buttons */
-    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] > div {{
-        gap: 0 !important;
-        display: flex !important;
-        flex-wrap: nowrap !important;
+    .spark-val {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        color: #FFF;
+        text-align: right;
     }}
-    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label {{
-        background: {C["surface"]} !important;
-        border: 1px solid {C["border"]} !important;
-        border-radius: 0 !important;
-        padding: 6px 16px !important;
-        cursor: pointer !important;
-        font-size: 13px !important;
-        font-weight: 600 !important;
-        color: {C["text_muted"]} !important;
-        transition: all 0.15s ease !important;
-        flex: 1 0 auto !important;
-        text-align: center !important;
-        justify-content: center !important;
-        white-space: nowrap !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label:first-of-type {{
-        border-radius: 8px 0 0 8px !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label:last-of-type {{
-        border-radius: 0 8px 8px 0 !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label:has(input:checked) {{
-        background: {C["primary"]} !important;
-        border-color: {C["primary"]} !important;
-        color: white !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] label p {{
-        color: inherit !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(> div [data-testid="stRadio"]) [data-testid="stRadio"] > label {{
-        display: none !important;
-    }}
-
-    /* Hide chrome */
-    #MainMenu {{ visibility: hidden; }}
-    footer {{ visibility: hidden; }}
+    
+    /* 5. UI CLEANUP */
+    [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
+    section[data-testid="stSidebar"] {{ background-color: #000000 !important; border-right: 1px solid #222; }}
+    #MainMenu, footer, header {{ visibility: hidden; }}
+    .block-container {{ padding-top: 3rem !important; }}
 </style>
 """, unsafe_allow_html=True)
-
 
 # --- AUTH ---
 def check_password():
@@ -188,35 +131,15 @@ def style_chart(fig, height=None):
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=C["text_muted"], size=12),
-        margin=dict(l=0, r=0, t=8, b=0),
-        xaxis=dict(
-            showgrid=False,
-            showline=True, linecolor=C["border"],
-            tickfont=dict(color=C["text_muted"], size=11),
-            fixedrange=True,
-        ),
-        yaxis=dict(
-            showgrid=True, gridcolor=C["grid"], gridwidth=1,
-            showline=False, zeroline=False,
-            tickfont=dict(color=C["text_muted"], size=11),
-            fixedrange=True,
-            tickprefix="$", tickformat=",.0f",
-        ),
-        legend=dict(
-            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-            font=dict(color=C["text_muted"], size=11),
-            bgcolor="rgba(0,0,0,0)",
-        ),
+        font=dict(color="#666", size=10, family="JetBrains Mono"), # Monospace axis
+        margin=dict(l=0, r=0, t=0, b=0),
+        xaxis=dict(showgrid=False, showline=False, visible=True), # Keep dates
+        yaxis=dict(showgrid=True, gridcolor="#222", gridwidth=1, showline=False), # Very dark grid
         hovermode="x unified",
-        hoverlabel=dict(bgcolor=C["surface2"], font_size=12, bordercolor=C["border"]),
-        dragmode=False,
-        yaxis2=dict(fixedrange=True),
+        showlegend=False,
     )
-    if height:
-        fig.update_layout(height=height)
+    if height: fig.update_layout(height=height)
     return fig
-
 
 def ytd_color(val):
     """Return green for positive YTD, red for negative."""
@@ -586,116 +509,186 @@ with spark_placeholder.container():
         hist = fdf[fdf["Account"] == acct].groupby("Date")["Total Value"].sum().sort_index()
         vals = hist.tolist()
         current = vals[-1] if vals else 0
-        trend_color = C["positive"] if len(vals) >= 2 and vals[-1] >= vals[0] else C["negative"]
-        svg = make_sparkline_svg(vals, color=trend_color)
+        
+        # Color logic: Green if up, Red if down
+        is_up = len(vals) >= 2 and vals[-1] >= vals[0]
+        trend_color = "#00D26A" if is_up else "#F82C2C"
+        
+        # Generate SVG
+        svg = make_sparkline_svg(vals, color=trend_color, width=60, height=20)
+        
+        # Render using the Grid Class
         st.markdown(
-            f'<div class="spark-row">'
-            f'<span class="spark-label">{acct}</span>'
-            f'{svg}'
-            f'<span class="spark-value">${current:,.0f}</span>'
-            f'</div>',
+            f"""
+            <div class="spark-row">
+                <div class="spark-label" title="{acct}">{acct}</div>
+                <div style="display: flex; align-items: center;">{svg}</div>
+                <div class="spark-val">${current:,.0f}</div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
         
-# --- HEADER ---
-st.title("Portfolio Command Center")
-st.markdown(f'<div class="timestamp">Last updated: {load_time.strftime("%b %d, %Y  %I:%M %p")}</div>', unsafe_allow_html=True)
+# --- HEADER: THE HUD (Responsive) ---
+# 1. The "Hero" Row
+c_hero, c_delta = st.columns([1.5, 2]) # Adjusted ratio for better mobile spacing
 
-# Helper: Generate the "Bubble" style for deltas
-def pill_html(value, color_key):
-    # Define colors for the pill background/text
-    if color_key == "positive":
-        bg = "rgba(34, 197, 94, 0.15)"  # Green tint
-        fg = C["positive"]
-    elif color_key == "negative":
-        bg = "rgba(239, 68, 68, 0.15)"  # Red tint
-        fg = C["negative"]
-    else:
-        bg = "rgba(148, 163, 184, 0.15)" # Grey tint
-        fg = C["text_muted"]
-        
-    return f'<span style="background: {bg}; color: {fg}; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 12px;">{value}</span>'
+with c_hero:
+    st.markdown(f"""
+    <div style="margin-bottom: 4px;">
+        <span style="font-size: 11px; color: #666; letter-spacing: 0.15em; text-transform: uppercase; white-space: nowrap;">Net Liquidity</span>
+    </div>
+    <div class="mono" style="
+        font-size: clamp(36px, 6vw, 64px); /* Scales between 36px and 64px */
+        font-weight: 700; 
+        color: #FFF; 
+        line-height: 1.1; 
+        white-space: nowrap; /* Never break to two lines */
+        letter-spacing: -0.04em;
+    ">
+        ${total_value:,.0f}
+    </div>
+    """, unsafe_allow_html=True)
 
-# Helper: Card Container
-def card_html(label, value, rows):
-    # Flattened HTML to prevent Markdown rendering errors
-    content = "".join(rows)
-    return f'<div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; height: 100%;"><div style="font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: {C["text_muted"]}; margin-bottom: 8px;">{label}</div><div style="font-weight: 700; font-size: 28px; color: {C["text"]}; margin-bottom: 8px;">{value}</div><div style="display: flex; flex-direction: column; gap: 6px;">{content}</div></div>'
-
-# Columns
-c1, c2, c3, c4 = st.columns(4)
-
-# 1. Net Liquidity
-with c1:
-    delta_type = "positive" if delta_value and "+" in delta_value else "negative"
-    pill = pill_html(delta_value, delta_type) if delta_value else "-"
-    row = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs Prev Period</span>{pill}</div>'
-    st.markdown(card_html("Net Liquidity", f"${total_value:,.0f}", [row]), unsafe_allow_html=True)
-
-# 2. Margin
-with c2:
-    pill = pill_html(delta_margin, "text_muted") if delta_margin else "-"
-    row = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">Change</span>{pill}</div>'
-    st.markdown(card_html("Margin", f"${total_margin:,.0f}", [row]), unsafe_allow_html=True)
-
-# 3. Cash & Deposits
-with c3:
-    # Row 1: Net Deposits
-    r1 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">Net Deposits</span><span style="color: {C["text"]}; font-weight: 600;">${net_deposits:,.0f}</span></div>'
-    # Row 2: vs Prev (Pill)
-    delta_type = "text_muted" # Default to grey for cash unless you want logic
-    pill = pill_html(delta_cash, delta_type) if delta_cash else "-"
-    r2 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs Prev</span>{pill}</div>'
-    st.markdown(card_html("CASH & DEPOSITS", f"${total_cash:,.0f}", [r1, r2]), unsafe_allow_html=True)
-
-# 4. YTD Return
-with c4:
-    # SPY Row
-    spy_diff = portfolio_ytd - spy_return
-    spy_pill = pill_html(f"{spy_diff:+.1f}%", "positive" if spy_diff >= 0 else "negative")
-    r1 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs SPY <span style="opacity:0.5; font-size: 10px;">({spy_return:+.1f}%)</span></span>{spy_pill}</div>'
+with c_delta:
+    # Logic for colors
+    is_pos = "+" in str(delta_value) if delta_value else False
+    d_color = "#00D26A" if is_pos else "#F82C2C"
     
-    # QQQ Row
-    qqq_diff = portfolio_ytd - qqq_return
-    qqq_pill = pill_html(f"{qqq_diff:+.1f}%", "positive" if qqq_diff >= 0 else "negative")
-    r2 = f'<div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;"><span style="color: {C["text_muted"]};">vs QQQ <span style="opacity:0.5; font-size: 10px;">({qqq_return:+.1f}%)</span></span>{qqq_pill}</div>'
-    
-    st.markdown(card_html("YTD RETURN", f"{portfolio_ytd:+.1f}%", [r1, r2]), unsafe_allow_html=True)
+    # We use a flex container that wraps gracefully on tiny screens
+    st.markdown(f"""
+    <div style="
+        height: 100%; 
+        min-height: 76px; 
+        display: flex; 
+        align-items: flex-end; 
+        gap: 24px; 
+        padding-bottom: 6px;
+        flex-wrap: wrap; /* Safe wrapping for mobile */
+    ">
+        <div>
+            <div style="font-size: 10px; color: #666; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
+            <div class="mono" style="font-size: clamp(18px, 2.5vw, 24px); color: {d_color}; white-space: nowrap;">
+                {delta_value}
+            </div>
+        </div>
+        <div style="width: 1px; height: 30px; background: #333; opacity: 0.5; margin-bottom: 4px;"></div> <div>
+            <div style="font-size: 10px; color: #666; margin-bottom: 2px; text-transform: uppercase;">YTD Return</div>
+            <div class="mono" style="font-size: clamp(18px, 2.5vw, 24px); color: {ytd_color(portfolio_ytd)}; white-space: nowrap;">
+                {portfolio_ytd:+.1f}%
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Footer
-if len(dates_sorted) >= 1:
-    period_start = pd.Timestamp(dates_sorted[0]).strftime("%b %#d")
-    period_end = pd.Timestamp(dates_sorted[-1]).strftime("%b %#d")
-    st.caption(f"Change ({period_start} – {period_end}): **\\${total_change:+,.0f}** = Market Returns **\\${market_returns:+,.0f}** + Net Deposits **\\${net_deposits:+,.0f}**")
-    
-# --- DRAWDOWN ALERT BANNER ---
+st.markdown('<div style="height: 32px;"></div>', unsafe_allow_html=True) # Spacer
+
+# 2. The "Data Strip": Secondary Metrics
+# We use st.columns which automatically stack on mobile
+m1, m2, m3, m4 = st.columns(4)
+
+def metric_strip(label, value, sub=None):
+    sub_html = f'<span style="color: #666; font-size: 12px; margin-left: 6px;">{sub}</span>' if sub else ""
+    return f"""
+    <div style="
+        border-top: 1px solid #222; 
+        padding-top: 12px; 
+        margin-bottom: 16px; /* Spacing for mobile stack */
+    ">
+        <div style="font-size: 10px; color: #666; letter-spacing: 0.05em; margin-bottom: 4px;">{label.upper()}</div>
+        <div class="mono" style="font-size: 18px; color: #DDD;">
+            {value} {sub_html}
+        </div>
+    </div>
+    """
+
+with m1:
+    st.markdown(metric_strip("Cash Position", f"${total_cash:,.0f}"), unsafe_allow_html=True)
+with m2:
+    st.markdown(metric_strip("Margin Used", f"${total_margin:,.0f}"), unsafe_allow_html=True)
+with m3:
+    st.markdown(metric_strip("Net Deposits", f"${net_deposits:,.0f}"), unsafe_allow_html=True)
+with m4:
+    alpha = portfolio_ytd - spy_return
+    alpha_col = "#00D26A" if alpha >= 0 else "#F82C2C"
+    st.markdown(f"""
+    <div style="border-top: 1px solid #222; padding-top: 12px; margin-bottom: 16px;">
+        <div style="font-size: 10px; color: #666; letter-spacing: 0.05em; margin-bottom: 4px;">ALPHA (vs SPY)</div>
+        <div class="mono" style="font-size: 18px; color: {alpha_col};">
+            {alpha:+.1f}%
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+
+# --- DRAWDOWN ALERT BANNER & SYSTEM STATUS ---
+# 1. Calculate Overall Portfolio Drawdown
 _all_time_totals = df.groupby("Date")["Total Value"].sum().sort_index()
-_all_time_peak = _all_time_totals.cummax().iloc[-1]
-_current_total = _all_time_totals.iloc[-1]
-_drawdown_pct = (1 - _current_total / _all_time_peak) * 100 if _all_time_peak > 0 else 0
+if not _all_time_totals.empty:
+    _peak = _all_time_totals.cummax().iloc[-1]
+    _curr = _all_time_totals.iloc[-1]
+    _port_dd_pct = (1 - _curr / _peak) * 100 if _peak > 0 else 0
 
-if _drawdown_pct > 15:
-    _peak_idx = _all_time_totals[_all_time_totals == _all_time_peak].index[-1]
-    st.markdown(
-        f'<div style="background: rgba(239,68,68,0.15); border: 1px solid {C["negative"]}; border-radius: 8px; '
-        f'padding: 12px 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">'
-        f'<span style="font-size: 18px;">🔴</span>'
-        f'<span style="color: {C["negative"]}; font-weight: 600; font-size: 14px;">'
-        f'Portfolio is {_drawdown_pct:.1f}% below peak — entered drawdown on {_peak_idx:%b %d, %Y}</span></div>',
-        unsafe_allow_html=True,
-    )
-elif _drawdown_pct > 7:
-    _peak_idx = _all_time_totals[_all_time_totals == _all_time_peak].index[-1]
-    st.markdown(
-        f'<div style="background: rgba(245,158,11,0.15); border: 1px solid {C["warning"]}; border-radius: 8px; '
-        f'padding: 12px 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">'
-        f'<span style="font-size: 18px;">🟡</span>'
-        f'<span style="color: {C["warning"]}; font-weight: 600; font-size: 14px;">'
-        f'Portfolio is {_drawdown_pct:.1f}% below peak — entered drawdown on {_peak_idx:%b %d, %Y}</span></div>',
-        unsafe_allow_html=True,
-    )
+    # 2. Main "Hero" Alert (The Big Banner)
+    if _port_dd_pct > 7:
+        _color = "#F82C2C" if _port_dd_pct > 15 else "#F59E0B"
+        _icon = "🔴" if _port_dd_pct > 15 else "🟡"
+        _peak_idx = _all_time_totals[_all_time_totals == _peak].index[-1]
+        
+        # Flattened HTML to prevent code-block rendering
+        st.markdown(f'<div style="background: rgba({("248, 44, 44" if _port_dd_pct > 15 else "245, 158, 11")}, 0.1); border: 1px solid {_color}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;"><span style="font-size: 16px;">{_icon}</span><div><div style="color: {_color}; font-weight: 600; font-size: 13px; letter-spacing: 0.02em;">PORTFOLIO DRAWDOWN ACTIVE</div><div style="color: {_color}; font-size: 12px; opacity: 0.9;">Current level is <span class="mono" style="font-weight: 700;">-{_port_dd_pct:.1f}%</span> from peak ({_peak_idx:%b %d}).</div></div></div>', unsafe_allow_html=True)
 
-st.markdown("")
+    # 3. Account Risk Matrix (The "System Status" Grid)
+    status_items = []
+
+    for acct in account_order:
+        # Get account history
+        a_hist = df[df["Account"] == acct].groupby("Date")["Total Value"].sum().sort_index()
+        if a_hist.empty: continue
+        
+        a_peak = a_hist.cummax().iloc[-1]
+        a_curr = a_hist.iloc[-1]
+        a_dd = (1 - a_curr / a_peak) * 100 if a_peak > 0 else 0
+        
+        # --- THE STATUS LOGIC ---
+        if a_dd < 1.0:
+            # ATH MODE (The "Winning" State)
+            # Bright Cyan/Green, Full Opacity
+            s_color = "#00D26A" # Growth Green
+            s_bg = "rgba(0, 210, 106, 0.1)"
+            s_border = "#00D26A"
+            s_opacity = "1.0"
+            s_text = "ATH" # Display "ATH" instead of -0.0%
+        elif a_dd > 15:
+            # DANGER
+            s_color = "#F82C2C"
+            s_bg = "rgba(248, 44, 44, 0.15)"
+            s_border = "#F82C2C"
+            s_opacity = "1.0"
+            s_text = f"-{a_dd:.1f}%"
+        elif a_dd > 7:
+            # WARNING
+            s_color = "#F59E0B"
+            s_bg = "rgba(245, 158, 11, 0.15)"
+            s_border = "#F59E0B"
+            s_opacity = "1.0"
+            s_text = f"-{a_dd:.1f}%"
+        else:
+            # NORMAL / DORMANT (The "Ghost" State)
+            # This is for accounts that are down, but not critically.
+            # We dim them to reduce noise.
+            s_color = "#666" 
+            s_bg = "transparent"
+            s_border = "#333"
+            s_opacity = "0.5"
+            s_text = f"-{a_dd:.1f}%"
+
+        # Render
+        status_items.append(f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: {s_bg}; border: 1px solid {s_border}; border-radius: 4px; padding: 6px 10px; opacity: {s_opacity}; min-width: 140px; flex: 1;"><span style="font-size: 10px; font-weight: 600; color: {s_color}; text-transform: uppercase; letter-spacing: 0.05em;">{acct}</span><span class="mono" style="font-size: 11px; color: {s_color};">{s_text}</span></div>')
+
+    # Render the Grid
+    st.markdown(f'<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px;">{"".join(status_items)}</div>', unsafe_allow_html=True)
 
 # --- QUICK RANGE BUTTONS ---
 def _on_quick_range_change():
@@ -733,19 +726,31 @@ with tab1:
     trend = fdf.groupby("Date")["Total Value"].sum().reset_index()
 
     fig = go.Figure()
+# Tab 1: Overview Chart
+    fig = go.Figure()
+    
+    # Gradient Fill ("The Glow")
     fig.add_trace(go.Scatter(
         x=trend["Date"], y=trend["Total Value"],
-        mode="lines+markers+text",
-        line=dict(color=C["primary"], width=2.5),
-        marker=dict(size=5, color=C["primary"]),
+        mode="lines",
+        line=dict(color="#00D26A", width=2), # Robinhood Green
         fill="tozeroy",
-        fillcolor="rgba(59,130,246,0.08)",
+        fillcolor="rgba(0, 210, 106, 0.1)", # Subtle radioactive glow
         name="Total Value",
-        text=trend["Total Value"],
-        texttemplate="%{y:.2s}",
-        textposition="top center",
-        textfont=dict(color=C["primary"], size=11),
     ))
+    
+    # Update style to match the green theme
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#666", size=10, family="JetBrains Mono"),
+        margin=dict(l=0, r=0, t=0, b=0),
+        xaxis=dict(showgrid=False, showline=False),
+        yaxis=dict(showgrid=True, gridcolor="#222", gridwidth=1, showline=False),
+        hovermode="x unified",
+        showlegend=False,
+    )
     fig = style_chart(fig, height=350)
     add_annotation_markers(fig, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="ov_growth")
@@ -785,31 +790,37 @@ with tab1:
             fig_bench.update_layout(hovermode="x unified")
             st.plotly_chart(fig_bench, use_container_width=True, config=CHART_CONFIG, key="ov_bench")
 
-    # Global Risk Monitor
+    # --- Global Risk Monitor ---
     st.subheader("Risk Monitor")
+    
+    # 1. Overall Portfolio Risk
     daily_totals = fdf.groupby("Date")["Total Value"].sum().reset_index()
     fig_risk = drawdown_chart(daily_totals, height=300, show_labels=True)
     add_annotation_markers(fig_risk, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
+    st.markdown("**Total Portfolio Drawdown**")
     st.plotly_chart(fig_risk, use_container_width=True, config=CHART_CONFIG, key="ov_risk")
 
-    # Per-account drawdown grid
-    cols = st.columns(2)
-    for i, account in enumerate(account_order):
-        with cols[i % 2]:
-            st.markdown(f"**{account}**")
-            acct_hist = df[df["Account"] == account].groupby("Date")["Total Value"].sum().reset_index()
-            if len(date_range) == 2:
-                acct_view = acct_hist[
-                    (acct_hist["Date"] >= pd.to_datetime(date_range[0]))
-                    & (acct_hist["Date"] <= pd.to_datetime(date_range[1]))
-                ]
-            else:
-                acct_view = acct_hist
-            if not acct_view.empty:
-                fig = drawdown_chart(acct_view, height=220, show_legend=False)
-                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"risk_{i}")
-            else:
-                st.info("No data for selected range")
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True) # Spacer
+
+    # 2. Split Risk: Growth vs Stable
+    # We stack them to keep the "same size" (Full Resolution) as requested
+    
+    # GROWTH RISK
+    daily_growth = fdf[fdf["Bucket"] == "Growth"].groupby("Date")["Total Value"].sum().reset_index()
+    if not daily_growth.empty:
+        st.markdown("**Growth Bucket Risk**")
+        fig_growth = drawdown_chart(daily_growth, height=300, show_labels=True)
+        # We can add a specific color override if you want Growth to look 'hotter', 
+        # but for now we keep the uniform "HUD" style.
+        st.plotly_chart(fig_growth, use_container_width=True, config=CHART_CONFIG, key="risk_growth")
+        st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+
+    # STABLE RISK
+    daily_stable = fdf[fdf["Bucket"] == "Stable"].groupby("Date")["Total Value"].sum().reset_index()
+    if not daily_stable.empty:
+        st.markdown("**Stable Bucket Risk**")
+        fig_stable = drawdown_chart(daily_stable, height=300, show_labels=True)
+        st.plotly_chart(fig_stable, use_container_width=True, config=CHART_CONFIG, key="risk_stable")
 
 
 # ═══════════════════════════════════════════
@@ -892,6 +903,7 @@ with tab2:
 
     for i, account in enumerate(account_order):
         with st.container():
+            # 1. The Header (Clean, Minimal)
             st.markdown(f"#### {account}")
 
             acct_df = fdf[fdf["Account"] == account]
@@ -899,60 +911,83 @@ with tab2:
                 ["Total Value", "Cash", "Margin Balance", "YTD", "W/D"]
             ].sum().reset_index()
 
+            # Calculate "Invested" portion for the stack
+            daily["Invested"] = daily["Total Value"] - daily["Cash"]
+
+            # 2. The Metrics (Floating above)
             latest_acct = acct_df.iloc[-1]
-            current_value = latest_acct["Total Value"]
-            current_ytd = latest_acct["YTD"]
-            acct_net_deposits = acct_df["W/D"].sum()
-
             k1, k2, k3 = st.columns(3)
-            k1.metric("Current Value", f"${current_value:,.0f}")
-            k2.metric("Net Deposits", f"${acct_net_deposits:,.0f}")
-            k3.metric("YTD Return", f"{current_ytd:+.1f}%")
+            k1.metric("Current Value", f"${latest_acct['Total Value']:,.0f}")
+            k2.metric("Net Deposits", f"${acct_df['W/D'].sum():,.0f}")
+            k3.metric("YTD Return", f"{latest_acct['YTD']:+.1f}%")
 
+            # 3. The "Composition" Chart
             fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-            # Value bars with labels
-            fig.add_trace(go.Bar(
-                x=daily["Date"], y=daily["Total Value"],
-                name="Value", marker_color=C["primary_dim"],
-                marker_line=dict(color=C["primary"], width=1),
-                text=daily["Total Value"],
-                texttemplate="%{y:.2s}",
-                textposition="inside",
-                textfont=dict(color=C["primary"], size=11),
-            ), secondary_y=False)
-
-            # Cash bars
+            # Layer 1: Cash (The Foundation - Dark Grey)
             fig.add_trace(go.Bar(
                 x=daily["Date"], y=daily["Cash"],
-                name="Cash", marker_color="rgba(34,197,94,0.2)",
-                marker_line=dict(color=C["positive"], width=1),
+                name="Cash",
+                marker_color="#27272A", # Dark Grey (Zinc-800)
+                marker_line_width=0,
+                opacity=0.8,
             ), secondary_y=False)
 
-            # YTD line — color-coded green/red
-            ytd_line_color = ytd_color(daily["YTD"].iloc[-1]) if not daily.empty else C["text_muted"]
+            # Layer 2: Invested (The Growth Engine - Dark Green)
+            fig.add_trace(go.Bar(
+                x=daily["Date"], y=daily["Invested"],
+                name="Invested",
+                marker_color="#064E3B", # Deep Green (Emerald-900)
+                marker_line_width=0,
+                opacity=0.9,
+            ), secondary_y=False)
+
+            # Layer 3: YTD Performance (The Signal - Neon)
+            # Dynamic color: Neon Green if positive, Neon Red if negative
+            curr_ytd = daily["YTD"].iloc[-1]
+            line_color = "#00D26A" if curr_ytd >= 0 else "#F82C2C"
+            
             fig.add_trace(go.Scatter(
                 x=daily["Date"], y=daily["YTD"],
-                name="YTD %", mode="lines+markers+text",
-                line=dict(color=ytd_line_color, width=2.5),
-                marker=dict(size=6, color=ytd_line_color),
-                text=daily["YTD"],
-                texttemplate="%{y:.1f}%",
-                textposition="top center",
-                textfont=dict(color=ytd_line_color, size=11),
+                name="YTD %",
+                mode="lines",
+                line=dict(color=line_color, width=2),
+                # Add a subtle glow/shadow to the line
+                fill="tozeroy",
+                fillcolor=f"rgba({('0, 210, 106' if curr_ytd >= 0 else '248, 44, 44')}, 0.05)",
             ), secondary_y=True)
 
-            fig = style_chart(fig, height=320)
-            fig.update_layout(barmode="group")
-            fig.update_yaxes(title_text="Value ($)", secondary_y=False)
-            fig.update_yaxes(
-                title_text="YTD (%)", secondary_y=True,
-                tickprefix="", ticksuffix="%", tickformat=".1f",
-                showgrid=False,
+            # Style: The "Robinhood" Look
+            fig.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                barmode="stack", # <--- CRITICAL: This merges the bars
+                margin=dict(l=0, r=0, t=10, b=0),
+                height=320,
+                showlegend=False, # Clean look
+                hovermode="x unified",
+                font=dict(family="Inter", size=11, color="#71717A"),
             )
+            
+            # Axes: Minimalist
+            fig.update_xaxes(showgrid=False, showline=False)
+            fig.update_yaxes(
+                title_text="", 
+                showgrid=True, gridcolor="#18181B", gridwidth=1, 
+                tickfont=dict(color="#52525B"),
+                secondary_y=False
+            )
+            fig.update_yaxes(
+                title_text="", 
+                showgrid=False, 
+                tickformat="+.1f", ticksuffix="%", 
+                tickfont=dict(color=line_color), # Axis matches line color
+                secondary_y=True
+            )
+
             st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"perf_{i}")
             st.divider()
-
 
 # ═══════════════════════════════════════════
 # TAB 3: ALLOCATION
