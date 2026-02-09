@@ -16,6 +16,19 @@ from pathlib import Path
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
 
+# --- NATIVE MOBILE CHROME ---
+st.markdown("""
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>
+(function() {
+    var vp = document.querySelector('meta[name="viewport"]');
+    if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no');
+})();
+</script>
+""", unsafe_allow_html=True)
+
 CHART_CONFIG = {"displayModeBar": False, "staticPlot": False, "scrollZoom": False}
 WARNING_THRESHOLD = 0.93
 DANGER_THRESHOLD = 0.85
@@ -171,10 +184,92 @@ st.markdown(f"""
     #MainMenu, footer, header {{ visibility: hidden; }}
     .block-container {{ padding-top: 1.5rem !important; }}
 
-    /* 10. MOBILE REFINEMENTS */
+    /* 10. HERO HUD — desktop: side-by-side */
+    .hero-hud {{
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 16px;
+        width: 100%;
+    }}
+
+    /* 11. MOBILE REFINEMENTS */
     @media (max-width: 768px) {{
-        .block-container {{ padding-left: 1rem !important; padding-right: 1rem !important; }}
+        /* Safe area insets */
+        .block-container {{
+            padding-left: max(1rem, env(safe-area-inset-left)) !important;
+            padding-right: max(1rem, env(safe-area-inset-right)) !important;
+            padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+        }}
         .metric-grid {{ gap: 12px 16px; }}
+
+        /* Bottom tab bar */
+        [data-testid="stTabs"] {{
+            overflow: visible !important;
+        }}
+        [data-baseweb="tab-list"] {{
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            z-index: 999999 !important;
+            background: {C["bg"]} !important;
+            border-top: 1px solid {C["border"]} !important;
+            border-bottom: none !important;
+            padding-bottom: env(safe-area-inset-bottom) !important;
+            justify-content: stretch !important;
+        }}
+        button[data-baseweb="tab"] {{
+            flex: 1 !important;
+            min-height: 52px !important;
+            font-size: 12px !important;
+            padding: 8px 4px !important;
+            justify-content: center !important;
+            border-bottom: none !important;
+        }}
+        button[data-baseweb="tab"][aria-selected="true"] {{
+            border-bottom: none !important;
+            border-top: 2px solid {C["primary"]} !important;
+        }}
+        [data-baseweb="tab-highlight"] {{
+            display: none !important;
+        }}
+        [data-baseweb="tab-panel"] {{
+            padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+        }}
+
+        /* Sticky hero header */
+        .hero-hud {{
+            position: sticky;
+            top: 0;
+            z-index: 99;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            background: {C["bg"]};
+            padding: 12px 0;
+            margin: -12px 0 0 0;
+        }}
+
+        /* Allocation columns stack vertically */
+        [data-testid="stHorizontalBlock"] {{
+            flex-direction: column !important;
+        }}
+
+        /* Breathing room & touch polish */
+        .flex-row {{
+            flex-wrap: wrap !important;
+        }}
+        [data-testid="stPlotlyChart"] {{
+            min-height: 280px !important;
+        }}
+        [data-testid="stDataFrame"] {{
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+        }}
+        button[data-testid="stBaseButton-headerNoPadding"] {{
+            opacity: 0.5 !important;
+        }}
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -658,28 +753,24 @@ with spark_placeholder.container():
         )
         
 # --- HEADER: THE HUD (Responsive) ---
-# 1. The "Hero" Row
-c_hero, c_delta = st.columns([1.5, 2])
+# 1. The "Hero" Row — single block, flexbox desktop / sticky mobile
+is_pos = "+" in str(delta_value) if delta_value else False
+d_color = C["positive"] if is_pos else C["negative"]
 
-with c_hero:
-    st.markdown(f"""
-    <div style="margin-bottom: 4px;">
-        <span style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.15em; text-transform: uppercase; white-space: nowrap;">Net Liquidity</span>
+st.markdown(f"""
+<div class="hero-hud">
+    <div>
+        <div style="margin-bottom: 4px;">
+            <span style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.15em; text-transform: uppercase; white-space: nowrap;">Net Liquidity</span>
+        </div>
+        <div class="mono" style="
+            font-size: clamp(32px, 8vw, 64px);
+            font-weight: 700; color: {C["text"]}; line-height: 1.1; white-space: nowrap; letter-spacing: -0.04em;
+        ">
+            ${total_value:,.0f}
+        </div>
     </div>
-    <div class="mono" style="
-        font-size: clamp(32px, 8vw, 64px);
-        font-weight: 700; color: {C["text"]}; line-height: 1.1; white-space: nowrap; letter-spacing: -0.04em;
-    ">
-        ${total_value:,.0f}
-    </div>
-    """, unsafe_allow_html=True)
-
-with c_delta:
-    is_pos = "+" in str(delta_value) if delta_value else False
-    d_color = C["positive"] if is_pos else C["negative"]
-
-    st.markdown(f"""
-    <div style="height: 100%; min-height: 60px; display: flex; align-items: flex-end; gap: 16px; padding-bottom: 4px; flex-wrap: wrap;">
+    <div style="display: flex; align-items: flex-end; gap: 16px; padding-bottom: 4px; flex-wrap: wrap;">
         <div>
             <div style="font-size: 10px; color: {C["text_dim"]}; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
             <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {d_color}; white-space: nowrap;">{delta_value}</div>
@@ -690,7 +781,8 @@ with c_delta:
             <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {ytd_color(portfolio_ytd)}; white-space: nowrap;">{portfolio_ytd:+.1f}%</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
 
 st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
