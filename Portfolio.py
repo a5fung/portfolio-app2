@@ -203,13 +203,23 @@ st.markdown(f"""
         }}
         .metric-grid {{ gap: 12px 16px; }}
 
-        /* Kill Streamlit's bottom-right chrome */
-        [data-testid="stStatusWidget"],
-        [data-testid="stToolbar"],
+        /* Kill Streamlit's floating chrome */
+        .stBottom,
+        .stBottomBlockContainer,
+        .stStatusWidget,
+        .stToolbar,
+        .stToolbarActions,
+        .stToolbarActionButton,
+        .stAppToolbar,
+        .stAppDeployButton,
+        .stElementToolbar,
         .stDeployButton,
-        [data-testid="manage-app-button"],
-        [data-testid="stDecoration"] {{
+        #MainMenu, header, footer {{
             display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
         }}
 
         /* Bottom tab bar */
