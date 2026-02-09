@@ -199,7 +199,7 @@ st.markdown(f"""
         .block-container {{
             padding-left: max(1rem, env(safe-area-inset-left)) !important;
             padding-right: max(1rem, env(safe-area-inset-right)) !important;
-            padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+            padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
         }}
         .metric-grid {{ gap: 12px 16px; }}
 
@@ -235,14 +235,15 @@ st.markdown(f"""
             background: {C["bg"]} !important;
             border-top: 1px solid {C["border"]} !important;
             border-bottom: none !important;
-            padding: 4px 0 env(safe-area-inset-bottom) 0 !important;
+            padding: 0 !important;
+            padding-bottom: calc(36px + env(safe-area-inset-bottom)) !important;
             justify-content: stretch !important;
         }}
         button[data-baseweb="tab"] {{
             flex: 1 !important;
-            min-height: 56px !important;
-            padding: 6px 4px 4px !important;
-            justify-content: center !important;
+            min-height: 64px !important;
+            padding: 10px 4px 2px !important;
+            justify-content: flex-start !important;
             align-items: center !important;
             flex-direction: column !important;
             display: flex !important;
@@ -263,7 +264,7 @@ st.markdown(f"""
             display: none !important;
         }}
         [data-baseweb="tab-panel"] {{
-            padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+            padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
         }}
 
         /* Tab icons via ::before pseudo-elements */
