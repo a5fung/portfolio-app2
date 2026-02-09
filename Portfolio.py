@@ -203,6 +203,15 @@ st.markdown(f"""
         }}
         .metric-grid {{ gap: 12px 16px; }}
 
+        /* Kill Streamlit's bottom-right chrome */
+        [data-testid="stStatusWidget"],
+        [data-testid="stToolbar"],
+        .stDeployButton,
+        [data-testid="manage-app-button"],
+        [data-testid="stDecoration"] {{
+            display: none !important;
+        }}
+
         /* Bottom tab bar */
         [data-testid="stTabs"] {{
             overflow: visible !important;
@@ -216,16 +225,25 @@ st.markdown(f"""
             background: {C["bg"]} !important;
             border-top: 1px solid {C["border"]} !important;
             border-bottom: none !important;
-            padding-bottom: env(safe-area-inset-bottom) !important;
+            padding: 4px 0 env(safe-area-inset-bottom) 0 !important;
             justify-content: stretch !important;
         }}
         button[data-baseweb="tab"] {{
             flex: 1 !important;
-            min-height: 52px !important;
-            font-size: 12px !important;
-            padding: 8px 4px !important;
+            min-height: 56px !important;
+            padding: 6px 4px 4px !important;
             justify-content: center !important;
+            align-items: center !important;
+            flex-direction: column !important;
+            display: flex !important;
+            gap: 2px !important;
             border-bottom: none !important;
+            border-top: 2px solid transparent !important;
+        }}
+        button[data-baseweb="tab"] p {{
+            font-size: 10px !important;
+            line-height: 1 !important;
+            margin: 0 !important;
         }}
         button[data-baseweb="tab"][aria-selected="true"] {{
             border-bottom: none !important;
@@ -236,6 +254,34 @@ st.markdown(f"""
         }}
         [data-baseweb="tab-panel"] {{
             padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+        }}
+
+        /* Tab icons via ::before pseudo-elements */
+        button[data-baseweb="tab"]::before {{
+            content: '';
+            display: block;
+            width: 22px;
+            height: 22px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            opacity: 0.45;
+            flex-shrink: 0;
+        }}
+        button[data-baseweb="tab"][aria-selected="true"]::before {{
+            opacity: 1;
+        }}
+        /* Overview — line chart icon */
+        button[data-baseweb="tab"]:nth-of-type(1)::before {{
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='m19 9-5 5-4-4-3 3'/%3E%3C/svg%3E");
+        }}
+        /* Performance — bar chart icon */
+        button[data-baseweb="tab"]:nth-of-type(2)::before {{
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='14' width='4' height='7' rx='0.5'/%3E%3Crect x='10' y='4' width='4' height='17' rx='0.5'/%3E%3Crect x='15' y='9' width='4' height='12' rx='0.5'/%3E%3C/svg%3E");
+        }}
+        /* Allocation — pie chart icon */
+        button[data-baseweb="tab"]:nth-of-type(3)::before {{
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.21 15.89A10 10 0 1 1 8 2.83'/%3E%3Cpath d='M22 12A10 10 0 0 0 12 2v10z'/%3E%3C/svg%3E");
         }}
 
         /* Sticky hero header */
