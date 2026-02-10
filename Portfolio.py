@@ -1648,6 +1648,8 @@ def render_cashflow_tab():
             node_y.append(col2_yc[i])
 
         # ── Col 3 nodes: subcategories (multi-subcat groups only) ──
+        # Minimum height per node prevents label overlap on small categories
+        MIN_SUB_H = 0.04
         subcat_node_idx = {}
         for i, (name, val, color, subcats) in enumerate(col2_items):
             if name == "Savings" or len(subcats) <= 1:
@@ -1655,15 +1657,23 @@ def render_cashflow_tab():
             sorted_subs = sorted(subcats, key=lambda c: -float(expense_df[c]))
             n_subs = len(sorted_subs)
             y_s, y_e = col2_ys[i], col2_ye[i]
-            sub_gap = 0.005
+            sub_gap = 0.012
             sub_total_gap = sub_gap * max(n_subs - 1, 0)
             sub_space = (y_e - y_s) - sub_total_gap
             sub_total_val = sum(float(expense_df[c]) for c in sorted_subs)
-            sub_y = y_s
+            # First pass: compute raw proportional heights, enforce minimum
+            raw_heights = []
             for cat in sorted_subs:
                 cat_val = float(expense_df[cat])
                 sub_prop = cat_val / sub_total_val if sub_total_val > 0 else 1.0 / n_subs
-                sub_h = sub_prop * sub_space
+                raw_heights.append(max(sub_prop * sub_space, MIN_SUB_H))
+            # Normalize so heights fit within available space
+            raw_sum = sum(raw_heights)
+            scale = sub_space / raw_sum if raw_sum > 0 else 1.0
+            sub_y = y_s
+            for j, cat in enumerate(sorted_subs):
+                cat_val = float(expense_df[cat])
+                sub_h = raw_heights[j] * scale
                 sidx = len(labels)
                 subcat_node_idx[cat] = sidx
                 labels.append(_lbl(cat, cat_val))
