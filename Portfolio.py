@@ -299,6 +299,10 @@ st.markdown(f"""
         button[data-baseweb="tab"]:nth-of-type(4)::before {{
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1'/%3E%3Cpath d='M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'/%3E%3C/svg%3E");
         }}
+        /* Trading — candlestick chart icon */
+        button[data-baseweb="tab"]:nth-of-type(5)::before {{
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='6' y1='4' x2='6' y2='20'/%3E%3Crect x='4' y='7' width='4' height='6' rx='0.5'/%3E%3Cline x1='12' y1='6' x2='12' y2='18'/%3E%3Crect x='10' y='9' width='4' height='5' rx='0.5'/%3E%3Cline x1='18' y1='3' x2='18' y2='16'/%3E%3Crect x='16' y='5' width='4' height='7' rx='0.5'/%3E%3C/svg%3E");
+        }}
 
         /* Sticky hero header */
         .hero-hud {{
