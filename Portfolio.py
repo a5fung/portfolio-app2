@@ -1547,7 +1547,7 @@ def render_cashflow_tab():
         expense_cats = expense_df.index.tolist() if has_expense else []
         total_inc = float(income_df.sum()) if has_income else 0
         total_exp = float(expense_df.sum()) if has_expense else 0
-        ref_total = total_inc if total_inc > 0 else total_exp
+        ref_total = total_exp if total_exp > 0 else total_inc
 
         # Group expenses into parent categories
         expense_grouped = {}
@@ -1562,72 +1562,122 @@ def render_cashflow_tab():
         savings = total_inc - total_exp
         has_savings = has_income and savings > 0
 
-        # ── 2-column layout: Income (left) → Expense Groups + Savings (right) ──
+        # Identify multi-subcat groups (fan out to col 3) vs single-subcat (terminal at col 2)
+        multi_groups = [g for g in sorted_groups if len(expense_grouped[g]) > 1]
+
+        def _lbl(name, amt):
+            display = SUBCAT_DISPLAY.get(name, name)
+            pct = (amt / ref_total * 100) if ref_total > 0 else 0
+            return f"{display}\n${amt:,.0f} · {pct:.0f}%"
+
+        # ── 3-column layout: Income → Groups (+Savings) → Subcategories ──
         labels, node_colors, node_x, node_y, node_customdata = [], [], [], [], []
 
-        X_LEFT, X_RIGHT = 0.01, 0.99
-        Y_TOP, Y_BOTTOM = 0.04, 0.96
+        X_COL1, X_COL2, X_COL3 = 0.01, 0.40, 0.99
+        Y_TOP, Y_BOTTOM = 0.02, 0.98
         USABLE = Y_BOTTOM - Y_TOP
-        NODE_GAP = 0.02
+        COL2_GAP = 0.015
 
-        # Right-column data: (name, value, color, hover_subcats, pct_str)
-        right_nodes = []
+        # ── Col 2 items: groups + savings ──
+        col2_items = []  # (name, value, color, subcats)
         for g in sorted_groups:
             g_total = sum(float(expense_df[c]) for c in expense_grouped[g])
             g_color = GROUP_COLORS.get(g, GROUP_COLORS["Other"])
-            sub_lines = []
-            for cat in sorted(expense_grouped[g], key=lambda c: -float(expense_df[c])):
-                dn = SUBCAT_DISPLAY.get(cat, cat)
-                sub_lines.append(f"  {dn}: ${float(expense_df[cat]):,.0f}")
-            pct = (g_total / ref_total * 100) if ref_total > 0 else 0
-            right_nodes.append((g, g_total, g_color, "<br>".join(sub_lines), f"{pct:.1f}%"))
-
+            col2_items.append((g, g_total, g_color, expense_grouped[g]))
         if has_savings:
-            sav_pct = (savings / total_inc * 100) if total_inc > 0 else 0
-            right_nodes.append(("Savings", savings, GROUP_COLORS["Savings"], "", f"{sav_pct:.1f}%"))
+            col2_items.append(("Savings", savings, GROUP_COLORS["Savings"], []))
 
-        N_right = len(right_nodes)
-        total_right = sum(r[1] for r in right_nodes)
+        N_col2 = len(col2_items)
+        total_col2 = sum(item[1] for item in col2_items)
 
-        # Compute proportional y-positions for right column
-        total_pad = NODE_GAP * max(N_right - 1, 0)
-        node_space = USABLE - total_pad
+        # Col 2 y-positions (proportional, tracking start/center/end per node)
+        col2_pad = COL2_GAP * max(N_col2 - 1, 0)
+        col2_space = USABLE - col2_pad
         y_cur = Y_TOP
-        right_y = []
-        for _, val, *_ in right_nodes:
-            prop = val / total_right if total_right > 0 else 1.0 / max(N_right, 1)
-            h = prop * node_space
-            right_y.append(y_cur + h / 2.0)
-            y_cur += h + NODE_GAP
+        col2_ys, col2_yc, col2_ye = [], [], []
+        for item in col2_items:
+            prop = item[1] / total_col2 if total_col2 > 0 else 1.0 / max(N_col2, 1)
+            h = prop * col2_space
+            col2_ys.append(y_cur)
+            col2_yc.append(y_cur + h / 2.0)
+            col2_ye.append(y_cur + h)
+            y_cur += h + COL2_GAP
 
-        # Node 0: Income (left, centered)
+        # Count col 3 nodes for dynamic height
+        n_col3 = sum(len(expense_grouped[g]) for g in multi_groups)
+        max_nodes = max(N_col2, n_col3) if n_col3 > 0 else N_col2
+        chart_h = max(420, min(800, 250 + max_nodes * 38))
+
+        # ── Node 0: Income (col 1, vertically centered) ──
         income_idx = 0
-        labels.append("Income")
+        labels.append(f"Income\n${total_inc:,.0f}")
         node_colors.append("#E0E0E0")
-        node_x.append(X_LEFT)
+        node_x.append(X_COL1)
         node_y.append(0.5)
-        inc_subs = []
-        for cat in income_df.sort_values(ascending=False).index:
-            inc_subs.append(f"  {cat}: ${float(income_df[cat]):,.0f}")
-        node_customdata.append(["Income", f"{total_inc:,.0f}", "100%", "<br>".join(inc_subs)])
+        inc_lines = [f"  {c}: ${float(income_df[c]):,.0f}" for c in income_df.sort_values(ascending=False).index]
+        node_customdata.append(["Income", f"{total_inc:,.0f}", "100%", "<br>".join(inc_lines)])
 
-        # Right-column nodes
+        # ── Col 2 nodes: groups + savings ──
         group_node_idx = {}
         savings_node_idx = None
-        for i, (name, val, color, sub_html, pct_str) in enumerate(right_nodes):
+        for i, (name, val, color, subcats) in enumerate(col2_items):
             idx = len(labels)
-            labels.append(name)
-            node_colors.append(color)
-            node_x.append(X_RIGHT)
-            node_y.append(right_y[i])
-            node_customdata.append([name, f"{val:,.0f}", pct_str, sub_html])
             if name == "Savings":
+                sav_pct = (savings / total_inc * 100) if total_inc > 0 else 0
+                labels.append(f"Savings\n${val:,.0f} · {sav_pct:.0f}%")
                 savings_node_idx = idx
-            else:
+                node_customdata.append(["Savings", f"{val:,.0f}", f"{sav_pct:.1f}%", ""])
+            elif len(subcats) == 1:
+                # Single subcat — show the specific category name
+                labels.append(_lbl(subcats[0], val))
                 group_node_idx[name] = idx
+                dn = SUBCAT_DISPLAY.get(subcats[0], subcats[0])
+                pct = (val / ref_total * 100) if ref_total > 0 else 0
+                node_customdata.append([dn, f"{val:,.0f}", f"{pct:.1f}%", ""])
+            else:
+                labels.append(_lbl(name, val))
+                group_node_idx[name] = idx
+                sub_lines = []
+                for c in sorted(subcats, key=lambda c: -float(expense_df[c])):
+                    dn = SUBCAT_DISPLAY.get(c, c)
+                    sub_lines.append(f"  {dn}: ${float(expense_df[c]):,.0f}")
+                pct = (val / ref_total * 100) if ref_total > 0 else 0
+                node_customdata.append([name, f"{val:,.0f}", f"{pct:.1f}%", "<br>".join(sub_lines)])
+            node_colors.append(color)
+            node_x.append(X_COL2)
+            node_y.append(col2_yc[i])
 
-        # ── Links: Income → Groups + Income → Savings ──
+        # ── Col 3 nodes: subcategories (multi-subcat groups only) ──
+        subcat_node_idx = {}
+        for i, (name, val, color, subcats) in enumerate(col2_items):
+            if name == "Savings" or len(subcats) <= 1:
+                continue
+            sorted_subs = sorted(subcats, key=lambda c: -float(expense_df[c]))
+            n_subs = len(sorted_subs)
+            y_s, y_e = col2_ys[i], col2_ye[i]
+            sub_gap = 0.005
+            sub_total_gap = sub_gap * max(n_subs - 1, 0)
+            sub_space = (y_e - y_s) - sub_total_gap
+            sub_total_val = sum(float(expense_df[c]) for c in sorted_subs)
+            sub_y = y_s
+            for cat in sorted_subs:
+                cat_val = float(expense_df[cat])
+                sub_prop = cat_val / sub_total_val if sub_total_val > 0 else 1.0 / n_subs
+                sub_h = sub_prop * sub_space
+                sidx = len(labels)
+                subcat_node_idx[cat] = sidx
+                labels.append(_lbl(cat, cat_val))
+                node_colors.append(color)
+                node_x.append(X_COL3)
+                node_y.append(sub_y + sub_h / 2.0)
+                pct = (cat_val / ref_total * 100) if ref_total > 0 else 0
+                node_customdata.append([SUBCAT_DISPLAY.get(cat, cat), f"{cat_val:,.0f}", f"{pct:.1f}%", ""])
+                sub_y += sub_h + sub_gap
+
+        # ── Links ──
         sources, targets, values, link_colors = [], [], [], []
+
+        # Income → Groups (all groups)
         for g in sorted_groups:
             g_total = sum(float(expense_df[c]) for c in expense_grouped[g])
             g_color = GROUP_COLORS.get(g, GROUP_COLORS["Other"])
@@ -1636,19 +1686,28 @@ def render_cashflow_tab():
             values.append(g_total)
             link_colors.append(_hex_to_rgba(g_color, 0.45))
 
+        # Income → Savings
         if savings_node_idx is not None:
             sources.append(income_idx)
             targets.append(savings_node_idx)
             values.append(savings)
             link_colors.append(_hex_to_rgba(GROUP_COLORS["Savings"], 0.5))
 
+        # Groups → Subcategories (multi-subcat groups only)
+        for g in multi_groups:
+            g_color = GROUP_COLORS.get(g, GROUP_COLORS["Other"])
+            for cat in expense_grouped[g]:
+                sources.append(group_node_idx[g])
+                targets.append(subcat_node_idx[cat])
+                values.append(float(expense_df[cat]))
+                link_colors.append(_hex_to_rgba(g_color, 0.3))
+
         # ── Hover templates ──
         node_hover = (
             "<b>%{customdata[0]}</b><br>"
             "$%{customdata[1]}<br>"
-            "%{customdata[2]} of income"
-            "<br><br>"
-            "%{customdata[3]}"
+            "%{customdata[2]} of spending"
+            "<br>%{customdata[3]}"
             "<extra></extra>"
         )
         link_hover = (
@@ -1656,9 +1715,6 @@ def render_cashflow_tab():
             "$%{value:,.0f}"
             "<extra></extra>"
         )
-
-        # ── Dynamic height ──
-        chart_h = max(400, min(700, 280 + N_right * 40))
 
         fig_sankey = go.Figure(go.Sankey(
             arrangement="fixed",
@@ -1774,10 +1830,14 @@ def render_cashflow_tab():
         else:
             display_cats = cat_totals
 
-        # Assign colors — amber for "Everything else"
+        # Assign colors — map each subcategory to its Sankey group color
         cat_colors = {}
-        for i, cat in enumerate(display_cats.index):
-            cat_colors[cat] = "#F5A623" if cat == "Everything else" else SANKEY_PALETTE[i % len(SANKEY_PALETTE)]
+        for cat in display_cats.index:
+            if cat == "Everything else":
+                cat_colors[cat] = GROUP_COLORS["Other"]
+            else:
+                grp = EXPENSE_GROUPS.get(cat, "Other")
+                cat_colors[cat] = GROUP_COLORS.get(grp, GROUP_COLORS["Other"])
 
         col_donut, col_legend = st.columns([2, 3])
 
@@ -1838,26 +1898,28 @@ def render_cashflow_tab():
 
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
-    # ── 5. MONTHLY TREND ──
+    # ── 5. MONTHLY TREND (past 6 months) ──
     section_label("Monthly Trend")
 
-    trend_df = ftdf.copy()
+    six_mo_start = (selected_period - 5).start_time
+    trend_df = tdf[(tdf["Date"] >= six_mo_start) & (tdf["Date"] <= month_end)].copy()
     trend_df["Month"] = trend_df["Date"].dt.to_period("M").dt.to_timestamp()
 
-    # Top 6 expense categories + "Other"
-    top6 = expenses_only.groupby("Category")["AbsAmount"].sum().nlargest(6).index.tolist()
-
-    expense_trend = trend_df[trend_df["Type"] == "Expense"].copy()
-    expense_trend["PlotCat"] = expense_trend["Category"].apply(lambda x: x if x in top6 else "Other")
-    monthly_expense = expense_trend.groupby(["Month", "PlotCat"])["AbsAmount"].sum().reset_index()
+    # Aggregate by expense group (matching Sankey) across 6-month window
+    trend_expenses = trend_df[trend_df["Type"] == "Expense"].copy()
+    trend_expenses["Group"] = trend_expenses["Category"].apply(lambda x: EXPENSE_GROUPS.get(x, "Other"))
+    monthly_expense = trend_expenses.groupby(["Month", "Group"])["AbsAmount"].sum().reset_index()
+    # Sort groups by total spend for consistent legend order
+    group_order = monthly_expense.groupby("Group")["AbsAmount"].sum().sort_values(ascending=False).index.tolist()
 
     monthly_income = trend_df[trend_df["Type"] == "Income"].groupby("Month")["Amount"].sum().reset_index()
 
     if not monthly_expense.empty:
         fig_trend = px.bar(
-            monthly_expense, x="Month", y="AbsAmount", color="PlotCat",
-            barmode="stack", color_discrete_sequence=ACCENT_RAMP,
-            labels={"AbsAmount": "Spending", "PlotCat": "Category"},
+            monthly_expense, x="Month", y="AbsAmount", color="Group",
+            barmode="stack", color_discrete_map=GROUP_COLORS,
+            category_orders={"Group": group_order},
+            labels={"AbsAmount": "Spending", "Group": "Category"},
         )
         # Income overlay line
         if not monthly_income.empty:
@@ -1872,7 +1934,7 @@ def render_cashflow_tab():
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
             font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
         ))
-        fig_trend.update_xaxes(dtick="M1", tickformat="%b %Y")
+        fig_trend.update_xaxes(dtick="M1", tickformat="%b '%y")
         st.plotly_chart(fig_trend, use_container_width=True, config=CHART_CONFIG, key="cf_trend")
 
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
