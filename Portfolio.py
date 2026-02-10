@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 import yfinance as yf
 import json
 from pathlib import Path
+import numpy as np
 
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
@@ -294,6 +295,10 @@ st.markdown(f"""
         button[data-baseweb="tab"]:nth-of-type(3)::before {{
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.21 15.89A10 10 0 1 1 8 2.83'/%3E%3Cpath d='M22 12A10 10 0 0 0 12 2v10z'/%3E%3C/svg%3E");
         }}
+        /* Cash Flow — wallet icon */
+        button[data-baseweb="tab"]:nth-of-type(4)::before {{
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1'/%3E%3Cpath d='M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'/%3E%3C/svg%3E");
+        }}
 
         /* Sticky hero header */
         .hero-hud {{
@@ -572,6 +577,69 @@ def load_benchmark(start_date, end_date):
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=DATA_CACHE_TTL)
+def load_transactions():
+    """Load transaction data from Tiller Money Google Sheet."""
+    try:
+        url = st.secrets.get("transactions_sheet_url")
+        if not url:
+            return pd.DataFrame()
+        return pd.read_csv(url)
+    except Exception:
+        return pd.DataFrame()
+
+
+def clean_transactions(tdf):
+    """Clean and normalize transaction data from Tiller."""
+    if tdf.empty:
+        return tdf
+    tdf.columns = tdf.columns.str.strip()
+    required = {"Date", "Description", "Category", "Amount"}
+    if not required.issubset(set(tdf.columns)):
+        return pd.DataFrame()
+    tdf = tdf.copy()
+    tdf["Date"] = pd.to_datetime(tdf["Date"], errors="coerce")
+    tdf = tdf.dropna(subset=["Date"])
+    tdf["Amount"] = pd.to_numeric(
+        tdf["Amount"].astype(str).str.replace(r'[$,\s]', '', regex=True),
+        errors="coerce",
+    ).fillna(0)
+    tdf["Type"] = tdf["Amount"].apply(lambda x: "Income" if x > 0 else "Expense")
+    tdf["AbsAmount"] = tdf["Amount"].abs()
+    # Fall back to Category Hint (Plaid auto-detect) when Category is empty
+    # Subcategory overrides: extract specific subcategories as top-level
+    SUBCATEGORY_MAP = {
+        "LOAN_PAYMENTS_MORTGAGE_PAYMENT": "Mortgage",
+        "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT": "Credit Card Payment",
+        "FOOD_AND_DRINK_RESTAURANT": "Restaurants",
+        "FOOD_AND_DRINK_FAST_FOOD": "Restaurants",
+        "FOOD_AND_DRINK_COFFEE": "Restaurants",
+        "FOOD_AND_DRINK_GROCERIES": "Groceries",
+        "GENERAL_SERVICES_INSURANCE": "Insurance",
+        "GENERAL_MERCHANDISE_PET_SUPPLIES": "Pets",
+    }
+    tdf["Category"] = tdf["Category"].astype(str)
+    if "Category Hint" in tdf.columns:
+        mask = tdf["Category"].str.strip().isin(["", "nan", "NaN", "None"])
+        hints = tdf.loc[mask, "Category Hint"].astype(str)
+        # Try subcategory match first, else fall back to top-level
+        subcats = hints.str.split(":").str[-1].str.strip()
+        top_cats = hints.str.split(":").str[0].str.replace("_", " ").str.strip().str.title()
+        resolved = subcats.map(SUBCATEGORY_MAP).fillna(top_cats)
+        tdf.loc[mask, "Category"] = resolved
+    tdf["Category"] = tdf["Category"].astype(str).str.strip().str.title()
+    tdf["Category"] = tdf["Category"].replace({"": "Uncategorized", "Nan": "Uncategorized"})
+    # Filter out transfers
+    transfer_cats = {"Transfer", "Credit Card Payment", "Transfer Out", "Transfer In"}
+    tdf = tdf[~tdf["Category"].isin(transfer_cats)]
+    # Filter out investment accounts (tracked in portfolio tabs)
+    if "Account" in tdf.columns:
+        exclude_accounts = {"Robinhood individual", "Robinhood managed individual"}
+        tdf = tdf[~tdf["Account"].str.lower().isin({a.lower() for a in exclude_accounts})]
+    tdf = tdf.sort_values("Date", ascending=False)
+    return tdf
+
+
 def clean_data(df):
     if df.empty:
         return df
@@ -617,6 +685,9 @@ df = clean_data(df)
 if not validate_data(df):
     st.stop()
 
+# --- TRANSACTION DATA ---
+tdf_raw = load_transactions()
+tdf = clean_transactions(tdf_raw)
 
 # --- SESSION STATE ---
 if "quick_range" not in st.session_state:
@@ -952,7 +1023,7 @@ else:
 st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
 # --- TABS (3 tabs: Overview merged with Risk) ---
-tab1, tab2, tab3 = st.tabs(["Overview", "Performance", "Allocation"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Performance", "Allocation", "Cash Flow", "Trading Journal"])
 
 # ═══════════════════════════════════════════
 # TAB 1: OVERVIEW + RISK
@@ -1293,3 +1364,800 @@ with tab3:
     ))
     fig_bt.update_yaxes(tickprefix="", ticksuffix="%", tickformat=".0f")
     st.plotly_chart(fig_bt, use_container_width=True, config=CHART_CONFIG, key="alloc_trend")
+
+# ═══════════════════════════════════════════
+# TAB 4: CASH FLOW
+# ═══════════════════════════════════════════
+BUDGETS_FILE = Path(__file__).parent / "budgets.json"
+
+def _load_budgets():
+    if BUDGETS_FILE.exists():
+        try:
+            return json.loads(BUDGETS_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+def _save_budgets(data):
+    BUDGETS_FILE.write_text(json.dumps(data, indent=2))
+
+if "budgets" not in st.session_state:
+    st.session_state.budgets = _load_budgets()
+
+
+def render_cashflow_tab():
+    """Render the Cash Flow tab. Returns early if no transaction data."""
+    if tdf.empty:
+        st.info("Connect Tiller Money to enable cash flow tracking. Add `transactions_sheet_url` to your Streamlit secrets.")
+        return
+
+    # Month selector
+    available_months = pd.PeriodIndex(tdf["Date"].dt.to_period("M").unique()).sort_values(ascending=False)
+    month_labels = [p.strftime("%b %Y") for p in available_months]
+    if not month_labels:
+        st.warning("No transactions available.")
+        return
+    selected_label = st.selectbox("Month", month_labels, key="cf_month_select", label_visibility="collapsed")
+    selected_period = available_months[month_labels.index(selected_label)]
+    month_start = selected_period.start_time
+    month_end = selected_period.end_time
+
+    ftdf = tdf[
+        (tdf["Date"] >= month_start) & (tdf["Date"] <= month_end)
+    ]
+    if ftdf.empty:
+        st.warning("No transactions for the selected month.")
+        return
+
+    # --- Computed values ---
+    total_income = ftdf.loc[ftdf["Type"] == "Income", "Amount"].sum()
+    total_spending = ftdf.loc[ftdf["Type"] == "Expense", "AbsAmount"].sum()
+    net_flow = total_income - total_spending
+    savings_rate = (net_flow / total_income * 100) if total_income > 0 else 0
+
+    # ── 1. HERO METRICS ──
+    net_color = C["positive"] if net_flow >= 0 else C["negative"]
+    sr_color = C["positive"] if savings_rate >= 0 else C["negative"]
+
+    st.markdown(f"""
+    <div class="metric-grid">
+        <div class="metric-item">
+            <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">NET CASH FLOW</div>
+            <div class="mono" style="font-size: 16px; color: {net_color};">{"-" if net_flow < 0 else ""}${abs(net_flow):,.0f}</div>
+        </div>
+        <div class="metric-item">
+            <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">TOTAL INCOME</div>
+            <div class="mono" style="font-size: 16px; color: {C["positive"]};">${total_income:,.0f}</div>
+        </div>
+        <div class="metric-item">
+            <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">TOTAL SPENDING</div>
+            <div class="mono" style="font-size: 16px; color: {C["negative"]};">${total_spending:,.0f}</div>
+        </div>
+        <div class="metric-item">
+            <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">SAVINGS RATE</div>
+            <div class="mono" style="font-size: 16px; color: {sr_color};">{savings_rate:+.1f}%</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── 2. SANKEY CHART ──
+    section_label("Income → Expense Flow")
+
+    income_df = ftdf[ftdf["Type"] == "Income"].groupby("Category")["AbsAmount"].sum()
+    expense_df = ftdf[ftdf["Type"] == "Expense"].groupby("Category")["AbsAmount"].sum()
+
+    # Filter out categories < 1% of their respective totals
+    if not income_df.empty:
+        income_df = income_df[income_df / income_df.sum() >= 0.01]
+    if not expense_df.empty:
+        expense_df = expense_df[expense_df / expense_df.sum() >= 0.01]
+
+    # ── Subcategory → Parent Group mapping ──
+    # Keys are Title Case (clean_transactions applies .str.title() to all categories).
+    # Includes Plaid fallback names (e.g. "Food And Drink" from FOOD_AND_DRINK hint).
+    EXPENSE_GROUPS = {
+        # Housing
+        "Mortgage": "Housing", "Rent": "Housing", "Home Improvement": "Housing",
+        "Hoa": "Housing", "Hoa Monthly Dues": "Housing",
+        "Home Maintenance": "Housing", "Home Repair": "Housing",
+        "Property Tax": "Housing", "Rent And Utilities": "Housing",
+        # Utilities
+        "Gas & Electric": "Utilities", "Electric": "Utilities",
+        "Internet & Cable": "Utilities", "Internet": "Utilities",
+        "Phone": "Utilities", "Water": "Utilities", "Garbage": "Utilities",
+        "Sewer": "Utilities", "Trash": "Utilities", "Cable": "Utilities",
+        # Food & Drink
+        "Groceries": "Food & Drink", "Restaurants": "Food & Drink",
+        "Restaurants & Bars": "Food & Drink", "Fast Food": "Food & Drink",
+        "Coffee": "Food & Drink", "Dining": "Food & Drink",
+        "Food And Drink": "Food & Drink",
+        # Transportation
+        "Gas": "Transportation", "Fuel": "Transportation",
+        "Auto Insurance": "Transportation", "Auto Payment": "Transportation",
+        "Parking": "Transportation", "Public Transit": "Transportation",
+        "Auto Maintenance": "Transportation", "Car Maintenance": "Transportation",
+        "Rideshare": "Transportation", "Transportation": "Transportation",
+        # Financial (includes car/loan payments)
+        "Loan Repayment": "Financial", "Student Loan": "Financial",
+        "Student Loan Payment": "Financial", "Car Payment": "Financial",
+        "Insurance": "Financial", "Life Insurance": "Financial",
+        "Bank Fee": "Financial", "Bank Fees": "Financial",
+        "Late Fee": "Financial", "Interest": "Financial",
+        "Tax": "Financial", "Taxes": "Financial",
+        "Loan Payments": "Financial", "General Services": "Financial",
+        "Government And Non Profit": "Financial",
+        # Shopping
+        "Shopping": "Shopping", "Clothing": "Shopping",
+        "General Merchandise": "Shopping", "Personal Care": "Shopping",
+        # Travel (standalone)
+        "Travel": "Travel",
+        # Lifestyle
+        "Pets": "Lifestyle", "Pet Supplies": "Lifestyle",
+        "Entertainment": "Lifestyle", "Streaming": "Lifestyle",
+        "Streaming Subscription": "Lifestyle",
+        "Gym": "Lifestyle", "Fitness": "Lifestyle",
+        "Health": "Lifestyle", "Medical": "Lifestyle", "Pharmacy": "Lifestyle",
+        "Subscription": "Lifestyle", "Software": "Lifestyle",
+        "Membership": "Lifestyle", "Recreation": "Lifestyle", "Community": "Lifestyle",
+    }
+
+    # Friendly display names for confusing Plaid fallback categories
+    SUBCAT_DISPLAY = {
+        "Food And Drink": "Other Dining",
+        "General Services": "Services",
+        "General Merchandise": "Merchandise",
+        "Government And Non Profit": "Government",
+        "Rent And Utilities": "Rent & Utilities",
+    }
+
+    GROUP_COLORS = {
+        "Housing": "#2271B1",
+        "Utilities": "#009688",
+        "Food & Drink": "#4CAF50",
+        "Transportation": "#3366CC",
+        "Financial": "#7B42BC",
+        "Shopping": "#F5A623",
+        "Travel": "#E25C5C",
+        "Lifestyle": "#45C9C1",
+        "Savings": "#22C55E",
+        "Other": "#78909C",
+    }
+
+    # Monarch-inspired palette for individual categories (donut + income nodes)
+    SANKEY_PALETTE = [
+        "#2271B1", "#4CAF50", "#F5A623", "#E25C5C", "#7B42BC",
+        "#45C9C1", "#E84393", "#3366CC", "#8BC34A", "#009688",
+        "#FF7043", "#5C6BC0", "#FFCA28", "#26A69A", "#2E7D32",
+        "#AB47BC", "#42A5F5", "#66BB6A", "#EF5350", "#78909C",
+    ]
+
+    def _hex_to_rgba(hex_color, alpha=0.3):
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+
+    has_income = not income_df.empty
+    has_expense = not expense_df.empty
+
+    if has_income or has_expense:
+        expense_cats = expense_df.index.tolist() if has_expense else []
+        total_inc = float(income_df.sum()) if has_income else 0
+        total_exp = float(expense_df.sum()) if has_expense else 0
+        ref_total = total_inc if total_inc > 0 else total_exp
+
+        # Group expenses into parent categories
+        expense_grouped = {}
+        for cat in expense_cats:
+            grp = EXPENSE_GROUPS.get(cat, "Other")
+            expense_grouped.setdefault(grp, []).append(cat)
+        sorted_groups = sorted(
+            expense_grouped.keys(),
+            key=lambda g: -sum(float(expense_df[c]) for c in expense_grouped[g]),
+        )
+
+        savings = total_inc - total_exp
+        has_savings = has_income and savings > 0
+
+        # ── 2-column layout: Income (left) → Expense Groups + Savings (right) ──
+        labels, node_colors, node_x, node_y, node_customdata = [], [], [], [], []
+
+        X_LEFT, X_RIGHT = 0.01, 0.99
+        Y_TOP, Y_BOTTOM = 0.04, 0.96
+        USABLE = Y_BOTTOM - Y_TOP
+        NODE_GAP = 0.02
+
+        # Right-column data: (name, value, color, hover_subcats, pct_str)
+        right_nodes = []
+        for g in sorted_groups:
+            g_total = sum(float(expense_df[c]) for c in expense_grouped[g])
+            g_color = GROUP_COLORS.get(g, GROUP_COLORS["Other"])
+            sub_lines = []
+            for cat in sorted(expense_grouped[g], key=lambda c: -float(expense_df[c])):
+                dn = SUBCAT_DISPLAY.get(cat, cat)
+                sub_lines.append(f"  {dn}: ${float(expense_df[cat]):,.0f}")
+            pct = (g_total / ref_total * 100) if ref_total > 0 else 0
+            right_nodes.append((g, g_total, g_color, "<br>".join(sub_lines), f"{pct:.1f}%"))
+
+        if has_savings:
+            sav_pct = (savings / total_inc * 100) if total_inc > 0 else 0
+            right_nodes.append(("Savings", savings, GROUP_COLORS["Savings"], "", f"{sav_pct:.1f}%"))
+
+        N_right = len(right_nodes)
+        total_right = sum(r[1] for r in right_nodes)
+
+        # Compute proportional y-positions for right column
+        total_pad = NODE_GAP * max(N_right - 1, 0)
+        node_space = USABLE - total_pad
+        y_cur = Y_TOP
+        right_y = []
+        for _, val, *_ in right_nodes:
+            prop = val / total_right if total_right > 0 else 1.0 / max(N_right, 1)
+            h = prop * node_space
+            right_y.append(y_cur + h / 2.0)
+            y_cur += h + NODE_GAP
+
+        # Node 0: Income (left, centered)
+        income_idx = 0
+        labels.append("Income")
+        node_colors.append("#E0E0E0")
+        node_x.append(X_LEFT)
+        node_y.append(0.5)
+        inc_subs = []
+        for cat in income_df.sort_values(ascending=False).index:
+            inc_subs.append(f"  {cat}: ${float(income_df[cat]):,.0f}")
+        node_customdata.append(["Income", f"{total_inc:,.0f}", "100%", "<br>".join(inc_subs)])
+
+        # Right-column nodes
+        group_node_idx = {}
+        savings_node_idx = None
+        for i, (name, val, color, sub_html, pct_str) in enumerate(right_nodes):
+            idx = len(labels)
+            labels.append(name)
+            node_colors.append(color)
+            node_x.append(X_RIGHT)
+            node_y.append(right_y[i])
+            node_customdata.append([name, f"{val:,.0f}", pct_str, sub_html])
+            if name == "Savings":
+                savings_node_idx = idx
+            else:
+                group_node_idx[name] = idx
+
+        # ── Links: Income → Groups + Income → Savings ──
+        sources, targets, values, link_colors = [], [], [], []
+        for g in sorted_groups:
+            g_total = sum(float(expense_df[c]) for c in expense_grouped[g])
+            g_color = GROUP_COLORS.get(g, GROUP_COLORS["Other"])
+            sources.append(income_idx)
+            targets.append(group_node_idx[g])
+            values.append(g_total)
+            link_colors.append(_hex_to_rgba(g_color, 0.45))
+
+        if savings_node_idx is not None:
+            sources.append(income_idx)
+            targets.append(savings_node_idx)
+            values.append(savings)
+            link_colors.append(_hex_to_rgba(GROUP_COLORS["Savings"], 0.5))
+
+        # ── Hover templates ──
+        node_hover = (
+            "<b>%{customdata[0]}</b><br>"
+            "$%{customdata[1]}<br>"
+            "%{customdata[2]} of income"
+            "<br><br>"
+            "%{customdata[3]}"
+            "<extra></extra>"
+        )
+        link_hover = (
+            "%{source.label} → %{target.label}<br>"
+            "$%{value:,.0f}"
+            "<extra></extra>"
+        )
+
+        # ── Dynamic height ──
+        chart_h = max(400, min(700, 280 + N_right * 40))
+
+        fig_sankey = go.Figure(go.Sankey(
+            arrangement="fixed",
+            node=dict(
+                pad=15,
+                thickness=26,
+                line=dict(width=0),
+                label=labels,
+                color=node_colors,
+                x=node_x,
+                y=node_y,
+                customdata=node_customdata,
+                hovertemplate=node_hover,
+            ),
+            link=dict(
+                source=sources,
+                target=targets,
+                value=values,
+                color=link_colors,
+                hovertemplate=link_hover,
+            ),
+        ))
+        fig_sankey.update_layout(
+            height=chart_h,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color=C["text_sec"], size=12, family="Inter"),
+        )
+        st.plotly_chart(fig_sankey, use_container_width=True, config=CHART_CONFIG, key="cf_sankey")
+    else:
+        st.caption("No transaction data for Sankey chart.")
+
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+
+    # ── 3. BUDGET TRACKER ──
+    section_label("Budget Tracker")
+
+    # Selected month spending (already filtered by month selector above)
+    month_mask = ftdf["Type"] == "Expense"
+    month_spending = ftdf[month_mask].groupby("Category")["AbsAmount"].sum()
+
+    with st.expander("Set Budgets"):
+        all_expense_cats = sorted(ftdf[ftdf["Type"] == "Expense"]["Category"].unique().tolist())
+        if all_expense_cats:
+            budget_cat = st.selectbox("Category", all_expense_cats, key="budget_cat_select")
+            budget_amt = st.number_input("Monthly Limit ($)", min_value=0, step=50, key="budget_amt_input")
+            if st.button("Save Budget", use_container_width=True, key="budget_save_btn"):
+                if budget_amt > 0:
+                    st.session_state.budgets[budget_cat] = budget_amt
+                    _save_budgets(st.session_state.budgets)
+                    st.rerun()
+
+            # Show existing budgets with delete buttons
+            if st.session_state.budgets:
+                st.markdown("**Current Budgets:**")
+                for bcat in list(st.session_state.budgets.keys()):
+                    bcol1, bcol2 = st.columns([3, 1])
+                    with bcol1:
+                        st.caption(f"{bcat}: ${st.session_state.budgets[bcat]:,.0f}")
+                    with bcol2:
+                        if st.button("✕", key=f"del_budget_{bcat}"):
+                            del st.session_state.budgets[bcat]
+                            _save_budgets(st.session_state.budgets)
+                            st.rerun()
+
+    # Progress bars
+    if st.session_state.budgets:
+        budget_html = ""
+        for bcat, limit in sorted(st.session_state.budgets.items()):
+            spent = float(month_spending.get(bcat, 0))
+            pct = (spent / limit * 100) if limit > 0 else 0
+            bar_width = min(pct, 100)
+            if pct > 100:
+                bar_color = C["negative"]
+            elif pct >= 80:
+                bar_color = C["warning"]
+            else:
+                bar_color = C["positive"]
+
+            budget_html += f"""
+            <div style="margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+                    <span style="font-size: 12px; color: {C["text_muted"]};">{bcat}</span>
+                    <span class="mono" style="font-size: 11px; color: {C["text_sec"]};">${spent:,.0f} / ${limit:,.0f}</span>
+                </div>
+                <div style="height: 6px; background: {C["surface2"]}; border-radius: 3px; overflow: hidden;">
+                    <div style="width: {bar_width}%; height: 100%; background: {bar_color}; border-radius: 3px; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            """
+        st.markdown(budget_html, unsafe_allow_html=True)
+
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+
+    # ── 4. SPENDING BREAKDOWN ──
+    section_label("Spending by Category")
+    expenses_only = ftdf[ftdf["Type"] == "Expense"]
+
+    if not expenses_only.empty:
+        cat_totals = expenses_only.groupby("Category")["AbsAmount"].sum().sort_values(ascending=False)
+
+        # Show top N initially, group the rest into "Everything else"
+        show_all_key = "cf_show_all_cats"
+        if show_all_key not in st.session_state:
+            st.session_state[show_all_key] = False
+        INITIAL_CAT_LIMIT = 12
+        has_more = len(cat_totals) > INITIAL_CAT_LIMIT
+        if has_more and not st.session_state[show_all_key]:
+            top_slice = cat_totals.head(INITIAL_CAT_LIMIT - 1)
+            other_amt = cat_totals.iloc[INITIAL_CAT_LIMIT - 1:].sum()
+            display_cats = pd.concat([top_slice, pd.Series([other_amt], index=["Everything else"])])
+        else:
+            display_cats = cat_totals
+
+        # Assign colors — amber for "Everything else"
+        cat_colors = {}
+        for i, cat in enumerate(display_cats.index):
+            cat_colors[cat] = "#F5A623" if cat == "Everything else" else SANKEY_PALETTE[i % len(SANKEY_PALETTE)]
+
+        col_donut, col_legend = st.columns([2, 3])
+
+        with col_donut:
+            fig_donut = go.Figure(go.Pie(
+                labels=display_cats.index.tolist(),
+                values=display_cats.values.tolist(),
+                hole=0.6,
+                marker=dict(
+                    colors=[cat_colors[c] for c in display_cats.index],
+                    line=dict(color=C["bg"], width=2),
+                ),
+                textinfo="none",
+                hovertemplate="%{label}<br>$%{value:,.2f} (%{percent})<extra></extra>",
+            ))
+            dim = C["text_dim"]
+            fig_donut.update_layout(
+                showlegend=False,
+                margin=dict(l=10, r=10, t=10, b=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=320,
+                annotations=[dict(
+                    text=f"${total_spending:,.2f}<br><span style='font-size:11px;color:{dim}'>Total</span>",
+                    x=0.5, y=0.5,
+                    font=dict(size=16, color=C["text"], family="JetBrains Mono"),
+                    showarrow=False,
+                )],
+            )
+            st.plotly_chart(fig_donut, use_container_width=True, config=CHART_CONFIG, key="cf_donut")
+
+        with col_legend:
+            items_html = ""
+            for cat, amt in display_cats.items():
+                pct = (amt / total_spending * 100) if total_spending > 0 else 0
+                clr = cat_colors[cat]
+                items_html += (
+                    f'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;">'
+                    f'<div style="min-width:10px;width:10px;height:10px;border-radius:50%;'
+                    f'background:{clr};margin-top:4px;flex-shrink:0;"></div>'
+                    f'<div style="min-width:0;">'
+                    f'<div style="font-size:13px;font-weight:500;color:{C["text"]};'
+                    f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{cat}</div>'
+                    f'<div class="mono" style="font-size:12px;color:{C["text_muted"]};">'
+                    f'${amt:,.2f} ({pct:.1f}%)</div>'
+                    f'</div></div>'
+                )
+            st.markdown(
+                f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 16px;padding-top:8px;">'
+                f'{items_html}</div>',
+                unsafe_allow_html=True,
+            )
+            if has_more:
+                toggle_label = "Show fewer categories" if st.session_state[show_all_key] else "Show all categories"
+                if st.button(toggle_label, key="cf_toggle_cats"):
+                    st.session_state[show_all_key] = not st.session_state[show_all_key]
+                    st.rerun()
+
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+
+    # ── 5. MONTHLY TREND ──
+    section_label("Monthly Trend")
+
+    trend_df = ftdf.copy()
+    trend_df["Month"] = trend_df["Date"].dt.to_period("M").dt.to_timestamp()
+
+    # Top 6 expense categories + "Other"
+    top6 = expenses_only.groupby("Category")["AbsAmount"].sum().nlargest(6).index.tolist()
+
+    expense_trend = trend_df[trend_df["Type"] == "Expense"].copy()
+    expense_trend["PlotCat"] = expense_trend["Category"].apply(lambda x: x if x in top6 else "Other")
+    monthly_expense = expense_trend.groupby(["Month", "PlotCat"])["AbsAmount"].sum().reset_index()
+
+    monthly_income = trend_df[trend_df["Type"] == "Income"].groupby("Month")["Amount"].sum().reset_index()
+
+    if not monthly_expense.empty:
+        fig_trend = px.bar(
+            monthly_expense, x="Month", y="AbsAmount", color="PlotCat",
+            barmode="stack", color_discrete_sequence=ACCENT_RAMP,
+            labels={"AbsAmount": "Spending", "PlotCat": "Category"},
+        )
+        # Income overlay line
+        if not monthly_income.empty:
+            fig_trend.add_trace(go.Scatter(
+                x=monthly_income["Month"], y=monthly_income["Amount"],
+                name="Income", mode="lines+markers",
+                line=dict(color=C["positive"], width=2, dash="dash"),
+                marker=dict(size=6, color=C["positive"]),
+            ))
+        fig_trend = style_chart(fig_trend, height=350)
+        fig_trend.update_layout(showlegend=True, legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+            font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
+        ))
+        fig_trend.update_xaxes(dtick="M1", tickformat="%b %Y")
+        st.plotly_chart(fig_trend, use_container_width=True, config=CHART_CONFIG, key="cf_trend")
+
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+
+    # ── 6. TRANSACTION FEED ──
+    section_label("Recent Transactions")
+    search_q = st.text_input("Search transactions", key="txn_search", placeholder="Filter by description or category...", label_visibility="collapsed")
+
+    feed_df = ftdf.copy()
+    if search_q:
+        q = search_q.lower()
+        feed_df = feed_df[
+            feed_df["Description"].astype(str).str.lower().str.contains(q, na=False)
+            | feed_df["Category"].astype(str).str.lower().str.contains(q, na=False)
+        ]
+
+    feed_df = feed_df.head(100)
+
+    if not feed_df.empty:
+        thead = (
+            f'<tr style="border-bottom: 1px solid {C["border"]}; position: sticky; top: 0; background: {C["bg"]};">'
+            f'<th style="text-align: left; padding: 6px 8px 6px 0; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase;">Date</th>'
+            f'<th style="text-align: left; padding: 6px 8px; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase;">Description</th>'
+            f'<th style="text-align: left; padding: 6px 8px; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase;">Category</th>'
+            f'<th style="text-align: right; padding: 6px 0 6px 8px; font-size: 10px; font-weight: 600; color: {C["text_dim"]}; text-transform: uppercase;">Amount</th>'
+            f'</tr>'
+        )
+        trows = ""
+        for _, row in feed_df.iterrows():
+            desc = str(row.get("Description", ""))[:40]
+            amt = row["Amount"]
+            amt_color = C["positive"] if amt > 0 else C["negative"]
+            amt_str = f"${abs(amt):,.2f}" if amt >= 0 else f"-${abs(amt):,.2f}"
+            dt_str = row["Date"].strftime("%b %d") if pd.notna(row["Date"]) else ""
+            trows += (
+                f'<tr style="border-bottom: 1px solid {C["surface"]};">'
+                f'<td class="mono" style="padding: 8px 8px 8px 0; font-size: 12px; color: {C["text_dim"]}; white-space: nowrap;">{dt_str}</td>'
+                f'<td style="padding: 8px; font-size: 13px; color: {C["text"]}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">{desc}</td>'
+                f'<td style="padding: 8px; font-size: 12px; color: {C["text_muted"]};">{row["Category"]}</td>'
+                f'<td class="mono" style="text-align: right; padding: 8px 0 8px 8px; font-size: 13px; color: {amt_color}; white-space: nowrap;">{amt_str}</td>'
+                f'</tr>'
+            )
+        st.markdown(
+            f'<div style="max-height: 500px; overflow-y: auto; border: 1px solid {C["border"]}; border-radius: 8px; padding: 0 12px;">'
+            f'<table style="width: 100%; border-collapse: collapse;">'
+            f'<thead>{thead}</thead><tbody>{trows}</tbody></table></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption("No transactions match your search.")
+
+with tab4:
+    render_cashflow_tab()
+
+# ═══════════════════════════════════════════
+# DATA LOADER: TRADING JOURNAL (SMART CUTOFF)
+# ═══════════════════════════════════════════
+@st.cache_data(ttl=DATA_CACHE_TTL)
+def load_trading_journal():
+    try:
+        url = st.secrets.get("trading_journal_url")
+        if not url:
+            return pd.DataFrame()
+        
+        # Read the raw CSV
+        df = pd.read_csv(url)
+        
+        # --- THE FIX: Stop reading at the first empty row ---
+        if "Stock" in df.columns:
+            # Find the index of the first row where 'Stock' is empty/NaN
+            # This marks the end of the main table and the start of the "gap"
+            empty_rows = df[df["Stock"].isna() | (df["Stock"].astype(str).str.strip() == "")].index
+            
+            if not empty_rows.empty:
+                first_empty_idx = empty_rows[0]
+                # Slice the DataFrame to keep only rows BEFORE the gap
+                df = df.iloc[:first_empty_idx]
+        
+        # -----------------------------------------------------
+
+        # 1. Clean Numeric Columns
+        cols_to_clean = ["Shares", "Cost Basis", "Proceeds", "P/L", "R/R", "Risk (%)", "% Return"]
+        for col in cols_to_clean:
+            if col in df.columns:
+                df[col] = (
+                    df[col].astype(str)
+                    .str.replace(r'[$,]', '', regex=True)
+                    .str.replace('(', '-', regex=False)
+                    .str.replace(')', '', regex=False)
+                    .str.replace('%', '', regex=False)
+                )
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        # 2. Date Parsing
+        for date_col in ["Entry Date", "Exit Date"]:
+            if date_col in df.columns:
+                df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+
+        # 3. Status Logic
+        if "Status" not in df.columns:
+            df["Status"] = df.apply(
+                lambda x: "Closed" if pd.notnull(x.get("Exit Date")) else "Open", 
+                axis=1
+            )
+            
+        return df.reset_index(drop=True)
+
+    except Exception as e:
+        st.error(f"Error loading trading journal: {e}")
+        return pd.DataFrame()
+
+# ═══════════════════════════════════════════
+# TAB 5: TRADING JOURNAL (HTML & CHART FIXES)
+# ═══════════════════════════════════════════
+with tab5:
+    trades = load_trading_journal()
+    
+    if trades.empty:
+        st.info("Connect your Google Sheet to track trading performance. Add `trading_journal_url` to secrets.")
+    else:
+        # Separate Open vs Closed
+        closed = trades[trades["Status"] == "Closed"].copy()
+        open_pos = trades[trades["Status"] == "Open"].copy()
+        
+        section_label("Performance Metrics")
+        
+        if not closed.empty:
+            # --- CALCULATIONS ---
+            total_pl = closed["P/L"].sum()
+            count = len(closed)
+            wins = closed[closed["P/L"] > 0]
+            losses = closed[closed["P/L"] <= 0]
+            
+            n_wins = len(wins)
+            win_rate = (n_wins / count * 100) if count > 0 else 0
+            
+            avg_win = wins["P/L"].mean() if not wins.empty else 0
+            avg_loss = losses["P/L"].mean() if not losses.empty else 0
+            largest_win = wins["P/L"].max() if not wins.empty else 0
+            largest_loss = losses["P/L"].min() if not losses.empty else 0
+            
+            gross_win = wins["P/L"].sum()
+            gross_loss = abs(losses["P/L"].sum())
+            profit_factor = (gross_win / gross_loss) if gross_loss > 0 else 0
+            payoff_ratio = (avg_win / abs(avg_loss)) if avg_loss != 0 else 0
+            expectancy = total_pl / count
+            
+            # --- COLORS & FORMATTING ---
+            pl_c = C["positive"] if total_pl >= 0 else C["negative"]
+            pf_c = C["positive"] if profit_factor >= 2.0 else (C["warning"] if profit_factor >= 1.2 else C["negative"])
+
+            # Use a simple lambda for safe string formatting
+            def color_span(val, color=None):
+                c = color if color else (C["positive"] if val >= 0 else C["negative"])
+                return f'<span style="color:{c}">${val:,.0f}</span>'
+
+            # --- RENDER HTML (Flat String to prevent errors) ---
+            st.markdown(f"""
+<div class="metric-grid">
+    <div class="metric-item">
+        <div class="sub-label">TOTAL P/L</div>
+        <div class="mono" style="font-size: 20px; color: {pl_c};">${total_pl:,.0f}</div>
+    </div>
+    <div class="metric-item">
+        <div class="sub-label">WIN RATE</div>
+        <div class="mono" style="font-size: 20px; color: {C['text']};">{win_rate:.0f}% <span style="font-size:12px;color:{C['text_dim']}">({n_wins}/{count})</span></div>
+    </div>
+    <div class="metric-item">
+        <div class="sub-label">PROFIT FACTOR</div>
+        <div class="mono" style="font-size: 20px; color: {pf_c};">{profit_factor:.2f}</div>
+    </div>
+    <div class="metric-item">
+        <div class="sub-label">EXPECTANCY</div>
+        <div class="mono" style="font-size: 20px; color: {C['text']};">${expectancy:,.0f}<span style="font-size:12px;color:{C['text_dim']}">/trade</span></div>
+    </div>
+    <div class="metric-item">
+        <div class="sub-label">AVG WIN / LOSS</div>
+        <div class="mono" style="font-size: 16px;">{color_span(avg_win)} <span style="color:{C['text_dim']}">/</span> {color_span(avg_loss)}</div>
+    </div>
+    <div class="metric-item">
+        <div class="sub-label">MAX WIN / LOSS</div>
+        <div class="mono" style="font-size: 16px;">{color_span(largest_win)} <span style="color:{C['text_dim']}">/</span> {color_span(largest_loss)}</div>
+    </div>
+    <div class="metric-item">
+        <div class="sub-label">PAYOFF RATIO</div>
+        <div class="mono" style="font-size: 16px; color: {C['text']};">1 : {payoff_ratio:.1f}</div>
+    </div>
+        <div class="metric-item">
+        <div class="sub-label">ACTIVE TRADES</div>
+        <div class="mono" style="font-size: 16px; color: {C['text']};">{len(open_pos)}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+        st.markdown('<div style="height: 32px;"></div>', unsafe_allow_html=True)
+        
+        # --- CHARTS ---
+        c1, c2 = st.columns([2, 1])
+        
+        with c1:
+            section_label("Equity Curve")
+            if not closed.empty:
+                # Group by date to handle multiple trades in one day
+                daily_pl = closed.groupby("Exit Date")["P/L"].sum().reset_index().sort_values("Exit Date")
+                daily_pl["Equity"] = daily_pl["P/L"].cumsum()
+                
+                # Drawdown calculation
+                daily_pl["Peak"] = daily_pl["Equity"].cummax()
+                daily_pl["Drawdown"] = daily_pl["Equity"] - daily_pl["Peak"]
+                max_dd = daily_pl["Drawdown"].min()
+                
+                fig_curve = go.Figure()
+                fig_curve.add_trace(go.Scatter(
+                    x=daily_pl["Exit Date"], y=daily_pl["Equity"],
+                    mode="lines",
+                    line=dict(color=C["primary"], width=2),
+                    fill="tozeroy",
+                    fillcolor="rgba(0, 210, 106, 0.05)",
+                    name="Cumulative P/L"
+                ))
+                
+                # Max DD Annotation
+                fig_curve.add_annotation(
+                    x=daily_pl["Exit Date"].iloc[-1], 
+                    y=daily_pl["Equity"].iloc[-1],
+                    text=f"Max DD: ${max_dd:,.0f}",
+                    showarrow=False, yshift=10,
+                    font=dict(color=C["negative"], size=10)
+                )
+
+                fig_curve = style_chart(fig_curve, height=320)
+                fig_curve.update_yaxes(tickprefix="$", showgrid=True, gridcolor=C["grid"])
+                st.plotly_chart(fig_curve, use_container_width=True, config=CHART_CONFIG)
+            else:
+                st.caption("No closed trades to plot.")
+
+        with c2:
+            section_label("Win Rate by Setup")
+            if not closed.empty and "Setup" in closed.columns:
+                setup_stats = closed.groupby("Setup")["P/L"].sum().sort_values(ascending=True)
+                colors = [C["positive"] if x > 0 else C["negative"] for x in setup_stats.values]
+                
+                # FIXED: Uses 'cornerradius' instead of 'rx'
+                fig_setup = go.Figure(go.Bar(
+                    y=setup_stats.index,
+                    x=setup_stats.values,
+                    orientation='h',
+                    marker=dict(color=colors, cornerradius=4), 
+                    text=setup_stats.apply(lambda x: f"${x:,.0f}"),
+                    textposition="auto"
+                ))
+                fig_setup = style_chart(fig_setup, height=320)
+                st.plotly_chart(fig_setup, use_container_width=True, config=CHART_CONFIG)
+
+        st.markdown('<div style="height: 32px;"></div>', unsafe_allow_html=True)
+
+        # --- LOG ---
+        section_label("Trade Log")
+        
+        col_search, col_filter = st.columns([2, 1])
+        with col_search:
+            q_trade = st.text_input("Search Trades", placeholder="Symbol, Setup, Notes...", label_visibility="collapsed")
+        with col_filter:
+            status_filter = st.selectbox("Status", ["All", "Open", "Closed"], label_visibility="collapsed")
+
+        display_df = trades.copy()
+        if status_filter != "All":
+            display_df = display_df[display_df["Status"] == status_filter]
+        
+        if q_trade:
+            mask = display_df.astype(str).apply(lambda x: x.str.contains(q_trade, case=False, na=False)).any(axis=1)
+            display_df = display_df[mask]
+
+        if not display_df.empty:
+            display_df = display_df.sort_values(["Exit Date", "Entry Date"], ascending=False)
+            
+            st.dataframe(
+                display_df,
+                column_config={
+                    "Entry Date": st.column_config.DateColumn("Entry", format="MMM DD"),
+                    "Exit Date": st.column_config.DateColumn("Exit", format="MMM DD"),
+                    "P/L": st.column_config.NumberColumn("P/L", format="$%d"),
+                    "Cost Basis": st.column_config.NumberColumn("Cost", format="$%d"),
+                    "Proceeds": st.column_config.NumberColumn("Proceeds", format="$%d"),
+                    "Shares": st.column_config.NumberColumn("Size", format="%d"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=400
+            )
+        else:
+            st.caption("No trades found.")

@@ -3,7 +3,12 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(python3:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebFetch(domain:www.monarchmoney.com)",
+      "WebFetch(domain:www.monarch.com)",
+      "WebSearch",
+      "WebFetch(domain:help.monarch.com)",
+      "WebFetch(domain:www.instagram.com)"
     ]
   }
 }
