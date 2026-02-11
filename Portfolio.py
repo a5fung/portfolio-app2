@@ -613,14 +613,43 @@ def clean_transactions(tdf):
     # Fall back to Category Hint (Plaid auto-detect) when Category is empty
     # Subcategory overrides: extract specific subcategories as top-level
     SUBCATEGORY_MAP = {
+        # Loan Payments
         "LOAN_PAYMENTS_MORTGAGE_PAYMENT": "Mortgage",
         "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT": "Credit Card Payment",
+        "LOAN_PAYMENTS_CAR_PAYMENT": "Car Payment",
+        "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT": "Student Loan",
+        "LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT": "Loan Repayment",
+        # Food & Drink
         "FOOD_AND_DRINK_RESTAURANT": "Restaurants",
-        "FOOD_AND_DRINK_FAST_FOOD": "Restaurants",
-        "FOOD_AND_DRINK_COFFEE": "Restaurants",
+        "FOOD_AND_DRINK_FAST_FOOD": "Fast Food",
+        "FOOD_AND_DRINK_COFFEE": "Coffee",
         "FOOD_AND_DRINK_GROCERIES": "Groceries",
+        "FOOD_AND_DRINK_BEER_AND_LIQUOR": "Restaurants",
+        # General Services
         "GENERAL_SERVICES_INSURANCE": "Insurance",
+        "GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING": "Financial Services",
+        "GENERAL_SERVICES_AUTOMOTIVE": "Auto Maintenance",
+        "GENERAL_SERVICES_CHILDCARE": "Childcare",
+        "GENERAL_SERVICES_CONSULTING_AND_LEGAL": "Legal Services",
+        "GENERAL_SERVICES_EDUCATION": "Education",
+        "GENERAL_SERVICES_POSTAGE_AND_SHIPPING": "Shipping",
+        "GENERAL_SERVICES_STORAGE": "Storage",
+        "GENERAL_SERVICES_OTHER_GENERAL_SERVICES": "Services",
+        # General Merchandise
+        "GENERAL_MERCHANDISE_CLOTHING_AND_ACCESSORIES": "Clothing",
+        "GENERAL_MERCHANDISE_DEPARTMENT_STORES": "Department Stores",
+        "GENERAL_MERCHANDISE_DISCOUNT_STORES": "Discount Stores",
+        "GENERAL_MERCHANDISE_ELECTRONICS": "Electronics",
+        "GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES": "Gifts",
+        "GENERAL_MERCHANDISE_OFFICE_SUPPLIES": "Office Supplies",
+        "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES": "Online Shopping",
         "GENERAL_MERCHANDISE_PET_SUPPLIES": "Pets",
+        "GENERAL_MERCHANDISE_SPORTING_GOODS": "Sporting Goods",
+        "GENERAL_MERCHANDISE_SUPERSTORES": "Superstores",
+        "GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS": "Books",
+        "GENERAL_MERCHANDISE_CONVENIENCE_STORES": "Convenience Stores",
+        "GENERAL_MERCHANDISE_TOBACCO_AND_VAPE": "Tobacco",
+        "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE": "Shopping",
     }
     tdf["Category"] = tdf["Category"].astype(str)
     if "Category Hint" in tdf.columns:
@@ -1490,9 +1519,16 @@ def render_cashflow_tab():
         "Tax": "Financial", "Taxes": "Financial",
         "Loan Payments": "Financial", "General Services": "Financial",
         "Government And Non Profit": "Financial",
+        "Financial Services": "Financial", "Legal Services": "Financial",
         # Shopping
         "Shopping": "Shopping", "Clothing": "Shopping",
         "General Merchandise": "Shopping", "Personal Care": "Shopping",
+        "Department Stores": "Shopping", "Discount Stores": "Shopping",
+        "Electronics": "Shopping", "Gifts": "Shopping",
+        "Office Supplies": "Shopping", "Online Shopping": "Shopping",
+        "Sporting Goods": "Shopping", "Superstores": "Shopping",
+        "Books": "Shopping", "Convenience Stores": "Shopping",
+        "Tobacco": "Shopping", "Shipping": "Shopping",
         # Travel (standalone)
         "Travel": "Travel",
         # Lifestyle
@@ -1503,6 +1539,7 @@ def render_cashflow_tab():
         "Health": "Lifestyle", "Medical": "Lifestyle", "Pharmacy": "Lifestyle",
         "Subscription": "Lifestyle", "Software": "Lifestyle",
         "Membership": "Lifestyle", "Recreation": "Lifestyle", "Community": "Lifestyle",
+        "Childcare": "Lifestyle", "Education": "Lifestyle", "Storage": "Lifestyle",
     }
 
     # Friendly display names for confusing Plaid fallback categories
@@ -1568,7 +1605,7 @@ def render_cashflow_tab():
         def _lbl(name, amt):
             display = SUBCAT_DISPLAY.get(name, name)
             pct = (amt / ref_total * 100) if ref_total > 0 else 0
-            return f"{display}\n${amt:,.0f} · {pct:.0f}%"
+            return f"{display}\n${amt:,.0f}\n{pct:.0f}%"
 
         # ── 3-column layout: Income → Groups (+Savings) → Subcategories ──
         labels, node_colors, node_x, node_y, node_customdata = [], [], [], [], []
@@ -1576,7 +1613,7 @@ def render_cashflow_tab():
         X_COL1, X_COL2, X_COL3 = 0.01, 0.40, 0.99
         Y_TOP, Y_BOTTOM = 0.02, 0.98
         USABLE = Y_BOTTOM - Y_TOP
-        COL2_GAP = 0.015
+        COL2_GAP = 0.02
 
         # ── Col 2 items: groups + savings ──
         col2_items = []  # (name, value, color, subcats)
@@ -1606,11 +1643,11 @@ def render_cashflow_tab():
         # Count col 3 nodes for dynamic height
         n_col3 = sum(len(expense_grouped[g]) for g in multi_groups)
         max_nodes = max(N_col2, n_col3) if n_col3 > 0 else N_col2
-        chart_h = max(420, min(800, 250 + max_nodes * 38))
+        chart_h = max(520, min(900, 300 + max_nodes * 48))
 
         # ── Node 0: Income (col 1, vertically centered) ──
         income_idx = 0
-        labels.append(f"Income\n${total_inc:,.0f}")
+        labels.append(f"Income\n${total_inc:,.0f}\n100%")
         node_colors.append("#E0E0E0")
         node_x.append(X_COL1)
         node_y.append(0.5)
@@ -1624,7 +1661,7 @@ def render_cashflow_tab():
             idx = len(labels)
             if name == "Savings":
                 sav_pct = (savings / total_inc * 100) if total_inc > 0 else 0
-                labels.append(f"Savings\n${val:,.0f} · {sav_pct:.0f}%")
+                labels.append(f"Savings\n${val:,.0f}\n{sav_pct:.0f}%")
                 savings_node_idx = idx
                 node_customdata.append(["Savings", f"{val:,.0f}", f"{sav_pct:.1f}%", ""])
             elif len(subcats) == 1:
@@ -1649,7 +1686,7 @@ def render_cashflow_tab():
 
         # ── Col 3 nodes: subcategories (multi-subcat groups only) ──
         # Minimum height per node prevents label overlap on small categories
-        MIN_SUB_H = 0.04
+        MIN_SUB_H = 0.05
         subcat_node_idx = {}
         for i, (name, val, color, subcats) in enumerate(col2_items):
             if name == "Savings" or len(subcats) <= 1:
@@ -1657,7 +1694,7 @@ def render_cashflow_tab():
             sorted_subs = sorted(subcats, key=lambda c: -float(expense_df[c]))
             n_subs = len(sorted_subs)
             y_s, y_e = col2_ys[i], col2_ye[i]
-            sub_gap = 0.012
+            sub_gap = 0.018
             sub_total_gap = sub_gap * max(n_subs - 1, 0)
             sub_space = (y_e - y_s) - sub_total_gap
             sub_total_val = sum(float(expense_df[c]) for c in sorted_subs)
