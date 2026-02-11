@@ -1657,6 +1657,7 @@ def render_cashflow_tab():
         # ── Col 2 nodes: groups + savings ──
         group_node_idx = {}
         savings_node_idx = None
+        col2_annotations = []  # (label_text, y_center) for multi-group nodes → rendered as left-side annotations
         for i, (name, val, color, subcats) in enumerate(col2_items):
             idx = len(labels)
             if name == "Savings":
@@ -1672,7 +1673,9 @@ def render_cashflow_tab():
                 pct = (val / ref_total * 100) if ref_total > 0 else 0
                 node_customdata.append([dn, f"{val:,.0f}", f"{pct:.1f}%", ""])
             else:
-                labels.append(_lbl(name, val))
+                # Multi-subcat group: blank Sankey label, use annotation on left side
+                labels.append("")
+                col2_annotations.append((_lbl(name, val), col2_yc[i]))
                 group_node_idx[name] = idx
                 sub_lines = []
                 for c in sorted(subcats, key=lambda c: -float(expense_df[c])):
@@ -1784,6 +1787,20 @@ def render_cashflow_tab():
                 hovertemplate=link_hover,
             ),
         ))
+        # Add left-side annotations for multi-group col 2 nodes
+        # Sankey y: 0=top, 1=bottom; paper y: 0=bottom, 1=top → invert
+        for ann_text, ann_y in col2_annotations:
+            fig_sankey.add_annotation(
+                x=X_COL2 - 0.02,
+                y=1 - ann_y,
+                xref="paper",
+                yref="paper",
+                text=ann_text.replace("\n", "<br>"),
+                showarrow=False,
+                xanchor="right",
+                yanchor="middle",
+                font=dict(color=C["text_sec"], size=12, family="Inter"),
+            )
         fig_sankey.update_layout(
             height=chart_h,
             margin=dict(l=10, r=10, t=10, b=10),
