@@ -682,11 +682,16 @@ def clean_data(df):
         st.error("Missing required 'Bucket' column")
         return pd.DataFrame()
     df = df.dropna(subset=["Bucket"])
-    for col in ["Total Value", "Cash", "Margin Balance", "W/D"]:
+    for col in ["Total Value", "Cash", "Margin Balance"]:
         if col in df.columns:
             s = df[col].astype(str).str.replace(r'[$,\s]', '', regex=True)
             df[col] = pd.to_numeric(s.str.replace('-', '0'), errors='coerce').fillna(0)
-    if "W/D" not in df.columns:
+    if "W/D" in df.columns:
+        s = df["W/D"].astype(str).str.replace(r'[$,\s]', '', regex=True)
+        s = s.str.replace(r'^-$', '0', regex=True)
+        s = s.str.replace(r'^\(([0-9.]+)\)$', r'-\1', regex=True)
+        df["W/D"] = pd.to_numeric(s, errors='coerce').fillna(0)
+    else:
         df["W/D"] = 0.0
     if "YTD" in df.columns:
         df["YTD"] = pd.to_numeric(df["YTD"].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
@@ -717,6 +722,10 @@ df = load_data()
 df = clean_data(df)
 if not validate_data(df):
     st.stop()
+df["_WD_neg"] = df["W/D"].clip(upper=0)
+df["Cum_WD"] = df.sort_values("Date").groupby("Account")["_WD_neg"].cumsum()
+df["Adjusted Value"] = df["Total Value"] - df["Cum_WD"]
+df = df.drop(columns=["_WD_neg"])
 
 # --- TRANSACTION DATA ---
 tdf_raw = load_transactions()
@@ -973,8 +982,10 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- DRAWDOWN ALERT BANNER & SYSTEM STATUS ---
-# 1. Calculate Overall Portfolio Drawdown
-_all_time_totals = df.groupby("Date")["Total Value"].sum().sort_index()
+# 1. Calculate Overall Portfolio Drawdown (YTD scope)
+_ytd_start = pd.Timestamp(datetime.now().year, 1, 1)
+_ytd_df = df[df["Date"] >= _ytd_start]
+_all_time_totals = _ytd_df.groupby("Date")["Adjusted Value"].sum().sort_index()
 if not _all_time_totals.empty:
     _peak = _all_time_totals.cummax().iloc[-1]
     _curr = _all_time_totals.iloc[-1]
@@ -993,7 +1004,7 @@ if not _all_time_totals.empty:
 
     for acct in account_order:
         # Get account history
-        a_hist = df[df["Account"] == acct].groupby("Date")["Total Value"].sum().sort_index()
+        a_hist = _ytd_df[_ytd_df["Account"] == acct].groupby("Date")["Adjusted Value"].sum().sort_index()
         if a_hist.empty: continue
         
         a_peak = a_hist.cummax().iloc[-1]
