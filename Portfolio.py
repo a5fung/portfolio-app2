@@ -1137,6 +1137,55 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# ── Goal Tracker Progress Bars ──
+for goal in st.session_state.goals:
+    g_target = goal["target"]
+    g_label = goal.get("label", f"${g_target:,.0f}")
+    g_pct = min((total_value / g_target) * 100, 100) if g_target > 0 else 0
+    g_remaining = max(g_target - total_value, 0)
+
+    # CAGR-based projection
+    g_projected = ""
+    if len(dates_sorted) >= 2 and total_value < g_target:
+        first_date = dates_sorted[0]
+        last_date = dates_sorted[-1]
+        first_val = fdf[fdf["Date"] == first_date]["Total Value"].sum()
+        if first_val > 0 and total_value > first_val:
+            days_elapsed = (pd.Timestamp(last_date) - pd.Timestamp(first_date)).days
+            if days_elapsed > 30:
+                cagr = (total_value / first_val) ** (365.25 / days_elapsed) - 1
+                if cagr > 0:
+                    years_to_goal = math.log(g_target / total_value) / math.log(1 + cagr)
+                    proj_date = pd.Timestamp.now() + pd.DateOffset(years=int(years_to_goal), months=int((years_to_goal % 1) * 12))
+                    g_projected = proj_date.strftime("%b %Y")
+
+    if g_pct >= 100:
+        g_bar_color = C["positive"]
+    elif g_pct >= 50:
+        g_bar_color = C["primary"]
+    else:
+        g_bar_color = C["text_muted"]
+
+    proj_html = f'<span style="font-size: 10px; color: {C["text_dim"]};">Est. {g_projected}</span>' if g_projected else ""
+
+    _goal_html = f"""<div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+<span style="font-size: 11px; font-weight: 600; color: {C["text_muted"]}; text-transform: uppercase; letter-spacing: 0.05em;">{g_label}</span>
+<span class="mono" style="font-size: 11px; color: {C["text_sec"]};">{_mask(f"${total_value:,.0f}")} / {_mask(f"${g_target:,.0f}")}</span>
+</div>
+<div style="height: 6px; background: {C["surface2"]}; border-radius: 3px; overflow: hidden; margin-bottom: 6px;">
+<div style="width: {g_pct:.1f}%; height: 100%; background: {g_bar_color}; border-radius: 3px; transition: width 0.3s ease;"></div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span class="mono" style="font-size: 11px; color: {g_bar_color};">{_mask(f"{g_pct:.0f}%", "pct")}</span>
+<div style="display: flex; gap: 12px; align-items: center;">
+<span style="font-size: 10px; color: {C["text_dim"]};">{_mask(f"${g_remaining:,.0f}")} to go</span>
+{proj_html}
+</div>
+</div>
+</div>"""
+    st.markdown(_goal_html, unsafe_allow_html=True)
+
 # --- DRAWDOWN ALERT BANNER & SYSTEM STATUS ---
 # 1. Calculate Overall Portfolio Drawdown (YTD scope)
 _ytd_start = pd.Timestamp(datetime.now().year, 1, 1)
@@ -1229,56 +1278,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Performance", "Allocation",
 # ═══════════════════════════════════════════
 with tab1:
     section_label("Portfolio Growth")
-
-    # ── Goal Tracker Progress Bars ──
-    for goal in st.session_state.goals:
-        g_target = goal["target"]
-        g_label = goal.get("label", f"${g_target:,.0f}")
-        g_pct = min((total_value / g_target) * 100, 100) if g_target > 0 else 0
-        g_remaining = max(g_target - total_value, 0)
-
-        # CAGR-based projection
-        g_projected = ""
-        if len(dates_sorted) >= 2 and total_value < g_target:
-            first_date = dates_sorted[0]
-            last_date = dates_sorted[-1]
-            first_val = fdf[fdf["Date"] == first_date]["Total Value"].sum()
-            if first_val > 0 and total_value > first_val:
-                days_elapsed = (pd.Timestamp(last_date) - pd.Timestamp(first_date)).days
-                if days_elapsed > 30:
-                    cagr = (total_value / first_val) ** (365.25 / days_elapsed) - 1
-                    if cagr > 0:
-                        years_to_goal = math.log(g_target / total_value) / math.log(1 + cagr)
-                        proj_date = pd.Timestamp.now() + pd.DateOffset(years=int(years_to_goal), months=int((years_to_goal % 1) * 12))
-                        g_projected = proj_date.strftime("%b %Y")
-
-        if g_pct >= 100:
-            g_bar_color = C["positive"]
-        elif g_pct >= 50:
-            g_bar_color = C["primary"]
-        else:
-            g_bar_color = C["text_muted"]
-
-        proj_html = f'<span style="font-size: 10px; color: {C["text_dim"]};">Est. {g_projected}</span>' if g_projected else ""
-
-        _goal_html = f"""<div style="background: {C["surface"]}; border: 1px solid {C["border"]}; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
-<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
-<span style="font-size: 11px; font-weight: 600; color: {C["text_muted"]}; text-transform: uppercase; letter-spacing: 0.05em;">{g_label}</span>
-<span class="mono" style="font-size: 11px; color: {C["text_sec"]};">{_mask(f"${total_value:,.0f}")} / {_mask(f"${g_target:,.0f}")}</span>
-</div>
-<div style="height: 6px; background: {C["surface2"]}; border-radius: 3px; overflow: hidden; margin-bottom: 6px;">
-<div style="width: {g_pct:.1f}%; height: 100%; background: {g_bar_color}; border-radius: 3px; transition: width 0.3s ease;"></div>
-</div>
-<div style="display: flex; justify-content: space-between; align-items: center;">
-<span class="mono" style="font-size: 11px; color: {g_bar_color};">{_mask(f"{g_pct:.0f}%", "pct")}</span>
-<div style="display: flex; gap: 12px; align-items: center;">
-<span style="font-size: 10px; color: {C["text_dim"]};">{_mask(f"${g_remaining:,.0f}")} to go</span>
-{proj_html}
-</div>
-</div>
-</div>"""
-        st.markdown(_goal_html, unsafe_allow_html=True)
-
     trend = fdf.groupby("Date")["Total Value"].sum().reset_index()
 
     fig = go.Figure()
