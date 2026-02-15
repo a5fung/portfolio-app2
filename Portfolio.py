@@ -516,6 +516,13 @@ def _mask(val, fmt="dollar"):
     return "***"
 
 
+def _hex_to_rgba(hex_color, alpha=0.3):
+    """Convert hex color to rgba string."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
 def section_label(text):
     """Render a thin, uppercase section label — native app style."""
     st.markdown(
@@ -540,14 +547,14 @@ def drawdown_chart(data, date_col="Date", value_col="Total Value", wd_col=None, 
     ))
     fig.add_trace(go.Scatter(
         x=data[date_col], y=data["Peak"] * WARNING_THRESHOLD,
-        fill="tonexty", fillcolor="rgba(239,68,68,0.08)",
+        fill="tonexty", fillcolor=_hex_to_rgba(C["negative"], 0.08),
         mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
 
     # Warning zone fill
     fig.add_trace(go.Scatter(
         x=data[date_col], y=data["Peak"],
-        fill="tonexty", fillcolor="rgba(245,158,11,0.06)",
+        fill="tonexty", fillcolor=_hex_to_rgba(C["warning"], 0.06),
         mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
 
@@ -1101,10 +1108,9 @@ if not _all_time_totals.empty:
     # 2. Main "Hero" Alert (The Big Banner)
     if _port_dd_pct > 7:
         _color = C["negative"] if _port_dd_pct > 15 else C["warning"]
-        _rgba = "248, 44, 44" if _port_dd_pct > 15 else "245, 158, 11"
         _peak_idx = _all_time_totals[_all_time_totals == _peak].index[-1]
 
-        st.markdown(f'<div style="background: rgba({_rgba}, 0.1); border: 1px solid {_color}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: {_color}; flex-shrink: 0;"></span><div><div style="color: {_color}; font-weight: 600; font-size: 13px; letter-spacing: 0.02em;">PORTFOLIO DRAWDOWN ACTIVE</div><div style="color: {_color}; font-size: 12px; opacity: 0.9;">Current level is <span class="mono" style="font-weight: 700;">{_mask(f"-{_port_dd_pct:.1f}%", "pct")}</span> from peak ({_peak_idx:%b %d}).</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background: {_hex_to_rgba(_color, 0.1)}; border: 1px solid {_color}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: {_color}; flex-shrink: 0;"></span><div><div style="color: {_color}; font-weight: 600; font-size: 13px; letter-spacing: 0.02em;">PORTFOLIO DRAWDOWN ACTIVE</div><div style="color: {_color}; font-size: 12px; opacity: 0.9;">Current level is <span class="mono" style="font-weight: 700;">{_mask(f"-{_port_dd_pct:.1f}%", "pct")}</span> from peak ({_peak_idx:%b %d}).</div></div></div>', unsafe_allow_html=True)
 
     # 3. Account Risk Matrix (The "System Status" Grid)
     status_items = []
@@ -1121,19 +1127,19 @@ if not _all_time_totals.empty:
         # --- THE STATUS LOGIC ---
         if a_dd < 1.0:
             s_color = C["positive"]
-            s_bg = "rgba(0, 210, 106, 0.1)"
+            s_bg = _hex_to_rgba(C["positive"], 0.1)
             s_border = C["positive"]
             s_opacity = "1.0"
             s_text = _mask("ATH", "pct")
         elif a_dd > 15:
             s_color = C["negative"]
-            s_bg = "rgba(248, 44, 44, 0.15)"
+            s_bg = _hex_to_rgba(C["negative"], 0.15)
             s_border = C["negative"]
             s_opacity = "1.0"
             s_text = _mask(f"-{a_dd:.1f}%", "pct")
         elif a_dd > 7:
             s_color = C["warning"]
-            s_bg = "rgba(245, 158, 11, 0.15)"
+            s_bg = _hex_to_rgba(C["warning"], 0.15)
             s_border = C["warning"]
             s_opacity = "1.0"
             s_text = _mask(f"-{a_dd:.1f}%", "pct")
@@ -1196,7 +1202,7 @@ with tab1:
         mode="lines",
         line=dict(color=C["primary"], width=2),
         fill="tonexty",
-        fillcolor="rgba(0, 210, 106, 0.08)",
+        fillcolor=_hex_to_rgba(C["primary"], 0.08),
         name="Total Value",
     ))
     fig = style_chart(fig, height=350)
@@ -1390,6 +1396,8 @@ with tab2:
             st.markdown(f'<div style="font-size: 14px; font-weight: 600; color: {C["text"]}; letter-spacing: 0.02em; margin-bottom: 4px;">{account}</div>', unsafe_allow_html=True)
 
             acct_df = fdf[fdf["Account"] == account]
+            if acct_df.empty:
+                continue
             daily = acct_df.groupby("Date")[
                 ["Total Value", "Cash", "Margin Balance", "YTD", "W/D"]
             ].sum().reset_index()
@@ -1437,13 +1445,12 @@ with tab2:
 
             curr_ytd_val = daily["YTD"].iloc[-1]
             line_color = C["positive"] if curr_ytd_val >= 0 else C["negative"]
-            fill_rgba = "0, 210, 106" if curr_ytd_val >= 0 else "248, 44, 44"
 
             fig.add_trace(go.Scatter(
                 x=daily["Date"], y=daily["YTD"],
                 name="YTD %", mode="lines",
                 line=dict(color=line_color, width=2),
-                fill="tozeroy", fillcolor=f"rgba({fill_rgba}, 0.05)",
+                fill="tozeroy", fillcolor=_hex_to_rgba(line_color, 0.05),
             ), secondary_y=True)
 
             fig = style_chart(fig, height=280)
@@ -1689,11 +1696,6 @@ def render_cashflow_tab():
         "#FF7043", "#5C6BC0", "#FFCA28", "#26A69A", "#2E7D32",
         "#AB47BC", "#42A5F5", "#66BB6A", "#EF5350", "#78909C",
     ]
-
-    def _hex_to_rgba(hex_color, alpha=0.3):
-        h = hex_color.lstrip("#")
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"rgba({r},{g},{b},{alpha})"
 
     has_income = not income_df.empty
     has_expense = not expense_df.empty
@@ -2330,36 +2332,39 @@ with tab5:
             section_label("Equity Curve")
             if not closed.empty:
                 # Group by date to handle multiple trades in one day
-                daily_pl = closed.groupby("Exit Date")["P/L"].sum().reset_index().sort_values("Exit Date")
-                daily_pl["Equity"] = daily_pl["P/L"].cumsum()
-                
-                # Drawdown calculation
-                daily_pl["Peak"] = daily_pl["Equity"].cummax()
-                daily_pl["Drawdown"] = daily_pl["Equity"] - daily_pl["Peak"]
-                max_dd = daily_pl["Drawdown"].min()
-                
-                fig_curve = go.Figure()
-                fig_curve.add_trace(go.Scatter(
-                    x=daily_pl["Exit Date"], y=daily_pl["Equity"],
-                    mode="lines",
-                    line=dict(color=C["primary"], width=2),
-                    fill="tozeroy",
-                    fillcolor="rgba(0, 210, 106, 0.05)",
-                    name="Cumulative P/L"
-                ))
-                
-                # Max DD Annotation
-                fig_curve.add_annotation(
-                    x=daily_pl["Exit Date"].iloc[-1], 
-                    y=daily_pl["Equity"].iloc[-1],
-                    text=_mask(f"Max DD: ${max_dd:,.0f}"),
-                    showarrow=False, yshift=10,
-                    font=dict(color=C["negative"], size=10)
-                )
+                daily_pl = closed.dropna(subset=["Exit Date"]).groupby("Exit Date")["P/L"].sum().reset_index().sort_values("Exit Date")
+                if daily_pl.empty:
+                    st.caption("No closed trades to plot.")
+                else:
+                    daily_pl["Equity"] = daily_pl["P/L"].cumsum()
 
-                fig_curve = style_chart(fig_curve, height=320)
-                fig_curve.update_yaxes(tickprefix="$", showgrid=True, gridcolor=C["grid"])
-                st.plotly_chart(fig_curve, use_container_width=True, config=CHART_CONFIG)
+                    # Drawdown calculation
+                    daily_pl["Peak"] = daily_pl["Equity"].cummax()
+                    daily_pl["Drawdown"] = daily_pl["Equity"] - daily_pl["Peak"]
+                    max_dd = daily_pl["Drawdown"].min()
+
+                    fig_curve = go.Figure()
+                    fig_curve.add_trace(go.Scatter(
+                        x=daily_pl["Exit Date"], y=daily_pl["Equity"],
+                        mode="lines",
+                        line=dict(color=C["primary"], width=2),
+                        fill="tozeroy",
+                        fillcolor=_hex_to_rgba(C["primary"], 0.05),
+                        name="Cumulative P/L"
+                    ))
+
+                    # Max DD Annotation
+                    fig_curve.add_annotation(
+                        x=daily_pl["Exit Date"].iloc[-1],
+                        y=daily_pl["Equity"].iloc[-1],
+                        text=_mask(f"Max DD: ${max_dd:,.0f}"),
+                        showarrow=False, yshift=10,
+                        font=dict(color=C["negative"], size=10)
+                    )
+
+                    fig_curve = style_chart(fig_curve, height=320)
+                    fig_curve.update_yaxes(tickprefix="$", showgrid=True, gridcolor=C["grid"])
+                    st.plotly_chart(fig_curve, use_container_width=True, config=CHART_CONFIG)
             else:
                 st.caption("No closed trades to plot.")
 
