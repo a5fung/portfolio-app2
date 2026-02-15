@@ -239,6 +239,20 @@ st.markdown(f"""
             pointer-events: none !important;
         }}
 
+        /* Force sidebar toggle visible on mobile */
+        [data-testid="collapsedControl"] {{
+            display: flex !important;
+            visibility: visible !important;
+            position: fixed !important;
+            top: 8px !important;
+            left: 8px !important;
+            z-index: 999999 !important;
+            background: {C["surface2"]} !important;
+            border-radius: 8px !important;
+            padding: 4px !important;
+            opacity: 0.85 !important;
+        }}
+
         /* Bottom tab bar */
         [data-testid="stTabs"] {{
             overflow: visible !important;
