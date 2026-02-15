@@ -104,8 +104,8 @@ st.markdown(f"""
         color: {C["text"]} !important;
     }}
 
-    /* 2b. GLOBAL TEXT COLOR OVERRIDE */
-    .stApp p, .stApp span, .stApp label, .stApp div,
+    /* 2b. GLOBAL TEXT COLOR OVERRIDE (avoid div/span to preserve inline styles) */
+    .stApp p, .stApp label,
     .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
     .stApp [data-testid="stMarkdownContainer"],
     .stApp [data-testid="stText"],
@@ -114,7 +114,7 @@ st.markdown(f"""
     .stApp .stDateInput label p,
     .stApp .stTextInput label p,
     .stApp .stNumberInput label p {{
-        color: inherit !important;
+        color: {C["text"]} !important;
     }}
     section[data-testid="stSidebar"] {{
         color: {C["text"]} !important;
