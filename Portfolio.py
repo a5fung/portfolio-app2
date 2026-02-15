@@ -140,9 +140,9 @@ st.markdown(f"""
     .stApp [data-testid="stExpander"] summary span {{
         color: {C["text"]} !important;
     }}
-    /* Radio pill text fix */
+    /* Radio pill text fix — inherit from parent label which has its own color */
     .stMainBlockContainer [data-testid="stRadio"] > div > label p {{
-        color: inherit !important;
+        color: {C["text"]} !important;
     }}
     /* Button text */
     .stApp button[kind="secondary"] {{
@@ -193,7 +193,7 @@ st.markdown(f"""
         align-items: center;
         gap: 12px;
         padding: 8px 0;
-        border-bottom: 1px solid {C["surface"]};
+        border-bottom: 1px solid {C["border"]};
     }}
     .spark-row:last-child {{ border-bottom: none; }}
     .spark-label {{ font-size: 12px; color: {C["text_muted"]}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
@@ -236,10 +236,6 @@ st.markdown(f"""
         color: {C["text"]} !important;
         font-weight: 700 !important;
     }}
-    .stMainBlockContainer [data-testid="stRadio"] > div > label p {{
-        color: inherit !important;
-    }}
-
     /* 9. TABS */
     button[data-baseweb="tab"] {{
         background-color: transparent !important;
@@ -303,7 +299,7 @@ st.markdown(f"""
             top: 8px !important;
             left: 8px !important;
             z-index: 999999 !important;
-            background: {C["surface2"]} !important;
+            background: {C["border"]} !important;
             border-radius: 8px !important;
             padding: 4px !important;
             opacity: 0.85 !important;
@@ -1335,7 +1331,7 @@ with tab2:
     for _, row in _attr_df.iterrows():
         chg_color = C["positive"] if row["% Change"] >= 0 else C["negative"]
         _trows += (
-            f'<tr style="border-bottom: 1px solid {C["surface"]};">'
+            f'<tr style="border-bottom: 1px solid {C["border"]};">'
             f'<td style="padding: 8px 8px 8px 0; font-size: 13px; font-weight: 500; color: {C["text"]};">{row["Account"]}</td>'
             f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {C["text_sec"]};">{_mask(_fmt(row["Current Value"]))}</td>'
             f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {chg_color};">{_mask(f"{row['% Change']:+.1f}%", "pct")}</td>'
@@ -1463,7 +1459,7 @@ with tab2:
 
             # Divider between accounts, not after last
             if i < len(account_order) - 1:
-                st.markdown(f'<div style="height: 24px; border-bottom: 1px solid {C["surface"]}; margin-bottom: 24px;"></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="height: 24px; border-bottom: 1px solid {C["border"]}; margin-bottom: 24px;"></div>', unsafe_allow_html=True)
 # ═══════════════════════════════════════════
 # TAB 3: ALLOCATION
 # ═══════════════════════════════════════════
@@ -2164,7 +2160,7 @@ def render_cashflow_tab():
             amt_str = _mask(f"${abs(amt):,.2f}" if amt >= 0 else f"-${abs(amt):,.2f}")
             dt_str = row["Date"].strftime("%b %d") if pd.notna(row["Date"]) else ""
             trows += (
-                f'<tr style="border-bottom: 1px solid {C["surface"]};">'
+                f'<tr style="border-bottom: 1px solid {C["border"]};">'
                 f'<td class="mono" style="padding: 8px 8px 8px 0; font-size: 12px; color: {C["text_dim"]}; white-space: nowrap;">{dt_str}</td>'
                 f'<td style="padding: 8px; font-size: 13px; color: {C["text"]}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">{desc}</td>'
                 f'<td style="padding: 8px; font-size: 12px; color: {C["text_muted"]};">{row["Category"]}</td>'
