@@ -101,6 +101,62 @@ st.markdown(f"""
     .stApp {{
         background-color: {C["bg"]} !important;
         font-family: 'Inter', sans-serif !important;
+        color: {C["text"]} !important;
+    }}
+
+    /* 2b. GLOBAL TEXT COLOR OVERRIDE */
+    .stApp p, .stApp span, .stApp label, .stApp div,
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+    .stApp [data-testid="stMarkdownContainer"],
+    .stApp [data-testid="stText"],
+    .stApp .stRadio label p,
+    .stApp .stSelectbox label p,
+    .stApp .stDateInput label p,
+    .stApp .stTextInput label p,
+    .stApp .stNumberInput label p {{
+        color: inherit !important;
+    }}
+    section[data-testid="stSidebar"] {{
+        color: {C["text"]} !important;
+    }}
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
+    section[data-testid="stSidebar"] .stMarkdown {{
+        color: {C["text"]} !important;
+    }}
+    section[data-testid="stSidebar"] .stCaption,
+    section[data-testid="stSidebar"] small {{
+        color: {C["text_muted"]} !important;
+    }}
+    /* Toggle label text */
+    .stApp [data-testid="stToggle"] label span {{
+        color: {C["text"]} !important;
+    }}
+    /* Expander header text */
+    .stApp [data-testid="stExpander"] summary span {{
+        color: {C["text"]} !important;
+    }}
+    /* Radio pill text fix */
+    .stMainBlockContainer [data-testid="stRadio"] > div > label p {{
+        color: inherit !important;
+    }}
+    /* Button text */
+    .stApp button[kind="secondary"] {{
+        color: {C["text"]} !important;
+        border-color: {C["border"]} !important;
+    }}
+    /* Selectbox / Date input text */
+    .stApp [data-baseweb="select"] span,
+    .stApp [data-baseweb="input"] input {{
+        color: {C["text"]} !important;
+    }}
+    /* Dataframe text */
+    .stApp [data-testid="stDataFrame"] {{
+        color: {C["text"]} !important;
     }}
     
     /* 3. MONOSPACE NUMBERS */
