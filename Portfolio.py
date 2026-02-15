@@ -17,47 +17,33 @@ import numpy as np
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
 
-# --- NATIVE MOBILE CHROME ---
-st.markdown("""
-<meta name="theme-color" content="#000000">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<script>
-(function() {
-    var vp = document.querySelector('meta[name="viewport"]');
-    if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no');
-})();
-</script>
-""", unsafe_allow_html=True)
-
 CHART_CONFIG = {"displayModeBar": False, "staticPlot": False, "scrollZoom": False}
 WARNING_THRESHOLD = 0.93
 DANGER_THRESHOLD = 0.85
 DATA_CACHE_TTL = 300  # 5 minutes
 
 # --- ROBINHOOD-INSPIRED PALETTE ---
-# --- ROBINHOOD-INSPIRED PALETTE (Final) ---
-C = {
+C_DARK = {
     # Base Colors
     "bg":           "#000000", # True Black
     "surface":      "#111113", # Almost Black Card
     "surface2":     "#18181B", # Hover state
-    
+
     # Text hierarchy
     "text":         "#FFFFFF", # Pure White
     "text_sec":     "#D4D4D8", # Zinc-300 (Secondary — values, numbers)
     "text_muted":   "#A1A1AA", # Zinc-400 (Tertiary — chart labels, axes)
     "text_dim":     "#52525B", # Zinc-600 (Quaternary — micro labels)
-    
+
     # Status Colors
     "primary":      "#00D26A", # Growth Green
     "primary_dim":  "#00331B", # Dark Green (for bar charts)
-    "positive":     "#00D26A", 
+    "positive":     "#00D26A",
     "positive_dim": "#004D26",
     "negative":     "#F82C2C", # Alert Red
     "negative_dim": "#450A0A",
     "warning":      "#F59E0B", # Amber
-    
+
     # Structural
     "border":       "#27272A", # Zinc-800
     "grid":         "#18181B", # Very subtle grid
@@ -68,6 +54,43 @@ ACCENT_RAMP = [
     "#A855F7", "#EC4899", "#06B6D4", "#F97316",
 ]
 
+C_LIGHT = {
+    "bg":           "#FFFFFF",
+    "surface":      "#F4F4F5",
+    "surface2":     "#E4E4E7",
+    "text":         "#09090B",
+    "text_sec":     "#27272A",
+    "text_muted":   "#52525B",
+    "text_dim":     "#71717A",   # Zinc-500 (readable on white)
+    "primary":      "#00B85E",
+    "primary_dim":  "#DCFCE7",
+    "positive":     "#00B85E",
+    "positive_dim": "#DCFCE7",
+    "negative":     "#DC2626",
+    "negative_dim": "#FEE2E2",
+    "warning":      "#D97706",
+    "border":       "#D4D4D8",
+    "grid":         "#D4D4D8",   # Slightly darker grid for white bg
+}
+
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = True
+C = C_DARK if st.session_state.dark_mode else C_LIGHT
+_svg_stroke = C["text"].replace("#", "%23")
+
+# --- NATIVE MOBILE CHROME ---
+st.markdown(f"""
+<meta name="theme-color" content="{C["bg"]}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>
+(function() {{
+    var vp = document.querySelector('meta[name="viewport"]');
+    if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no');
+}})();
+</script>
+""", unsafe_allow_html=True)
+
 # --- STYLES ---
 st.markdown(f"""
 <style>
@@ -76,7 +99,7 @@ st.markdown(f"""
 
     /* 2. THE VOID */
     .stApp {{
-        background-color: #000000 !important;
+        background-color: {C["bg"]} !important;
         font-family: 'Inter', sans-serif !important;
     }}
     
@@ -182,7 +205,7 @@ st.markdown(f"""
     /* UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
     section[data-testid="stSidebar"] {{ background-color: {C["bg"]} !important; border-right: 1px solid {C["border"]}; }}
-    #MainMenu, footer, header {{ visibility: hidden; }}
+    #MainMenu, footer, [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
     .block-container {{ padding-top: 1.5rem !important; }}
 
     /* 10. HERO HUD — desktop: side-by-side */
@@ -204,18 +227,11 @@ st.markdown(f"""
         }}
         .metric-grid {{ gap: 12px 16px; }}
 
-        /* Kill Streamlit's floating chrome */
+        /* Kill Streamlit's floating chrome (keep sidebar toggle) */
         .stBottom,
         .stBottomBlockContainer,
         .stStatusWidget,
-        .stToolbar,
-        .stToolbarActions,
-        .stToolbarActionButton,
-        .stAppToolbar,
-        .stAppDeployButton,
-        .stElementToolbar,
-        .stDeployButton,
-        #MainMenu, header, footer {{
+        .stElementToolbar {{
             display: none !important;
             visibility: hidden !important;
             height: 0 !important;
@@ -285,23 +301,23 @@ st.markdown(f"""
         }}
         /* Overview — line chart icon */
         button[data-baseweb="tab"]:nth-of-type(1)::before {{
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='m19 9-5 5-4-4-3 3'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='{_svg_stroke}' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='m19 9-5 5-4-4-3 3'/%3E%3C/svg%3E");
         }}
         /* Performance — bar chart icon */
         button[data-baseweb="tab"]:nth-of-type(2)::before {{
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='14' width='4' height='7' rx='0.5'/%3E%3Crect x='10' y='4' width='4' height='17' rx='0.5'/%3E%3Crect x='15' y='9' width='4' height='12' rx='0.5'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='{_svg_stroke}' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='14' width='4' height='7' rx='0.5'/%3E%3Crect x='10' y='4' width='4' height='17' rx='0.5'/%3E%3Crect x='15' y='9' width='4' height='12' rx='0.5'/%3E%3C/svg%3E");
         }}
         /* Allocation — pie chart icon */
         button[data-baseweb="tab"]:nth-of-type(3)::before {{
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.21 15.89A10 10 0 1 1 8 2.83'/%3E%3Cpath d='M22 12A10 10 0 0 0 12 2v10z'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='{_svg_stroke}' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.21 15.89A10 10 0 1 1 8 2.83'/%3E%3Cpath d='M22 12A10 10 0 0 0 12 2v10z'/%3E%3C/svg%3E");
         }}
         /* Cash Flow — wallet icon */
         button[data-baseweb="tab"]:nth-of-type(4)::before {{
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1'/%3E%3Cpath d='M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='{_svg_stroke}' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1'/%3E%3Cpath d='M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'/%3E%3C/svg%3E");
         }}
         /* Trading — candlestick chart icon */
         button[data-baseweb="tab"]:nth-of-type(5)::before {{
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='6' y1='4' x2='6' y2='20'/%3E%3Crect x='4' y='7' width='4' height='6' rx='0.5'/%3E%3Cline x1='12' y1='6' x2='12' y2='18'/%3E%3Crect x='10' y='9' width='4' height='5' rx='0.5'/%3E%3Cline x1='18' y1='3' x2='18' y2='16'/%3E%3Crect x='16' y='5' width='4' height='7' rx='0.5'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='{_svg_stroke}' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='6' y1='4' x2='6' y2='20'/%3E%3Crect x='4' y='7' width='4' height='6' rx='0.5'/%3E%3Cline x1='12' y1='6' x2='12' y2='18'/%3E%3Crect x='10' y='9' width='4' height='5' rx='0.5'/%3E%3Cline x1='18' y1='3' x2='18' y2='16'/%3E%3Crect x='16' y='5' width='4' height='7' rx='0.5'/%3E%3C/svg%3E");
         }}
 
         /* Sticky hero header */
@@ -362,10 +378,10 @@ if not check_password():
 
 
 # --- CHART HELPERS ---
-def style_chart(fig, height=None):
+def style_chart(fig, height=None, dollar_format=True):
     # 1. Base Layout
     fig.update_layout(
-        template="plotly_dark",
+        template="plotly_dark" if st.session_state.dark_mode else "plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=C["text_dim"], size=10, family="JetBrains Mono"),
@@ -373,22 +389,26 @@ def style_chart(fig, height=None):
         
         # 2. LOCK INTERACTIONS (The Fix)
         dragmode=False,     # Disable panning/zooming via drag
-        hovermode="x unified",
+        hovermode=False if st.session_state.get("privacy_mode") else "x unified",
         hoverlabel=dict(bgcolor=C["surface2"], font_size=12, font_family="JetBrains Mono", bordercolor=C["border"]),
-        
+
         xaxis=dict(
-            showgrid=False, 
-            showline=False, 
+            showgrid=False,
+            showline=False,
             fixedrange=True, # Disable Zoom on X
-            visible=True
+            visible=True,
+            tickfont=dict(color=C["text_muted"]),
         ),
         yaxis=dict(
-            showgrid=True, 
-            gridcolor=C["border"], 
-            gridwidth=1, 
+            showgrid=True,
+            gridcolor=C["grid"],
+            gridwidth=1,
             showline=False,
             fixedrange=True, # Disable Zoom on Y
-            tickprefix="$"
+            tickprefix="$" if dollar_format else "",
+            hoverformat=".3s" if dollar_format else "",
+            showticklabels=not st.session_state.get("privacy_mode", False),
+            tickfont=dict(color=C["text_muted"]),
         ),
         showlegend=False,
     )
@@ -413,6 +433,19 @@ def _fmt(val):
     return f"${val:,.0f}"
 
 
+def _mask(val, fmt="dollar"):
+    """Return masked string when privacy mode is on, otherwise passthrough."""
+    if not st.session_state.get("privacy_mode", False):
+        return val
+    if fmt == "dollar":
+        return "$***"
+    elif fmt == "pct":
+        return "**%"
+    elif fmt == "num":
+        return "***"
+    return "***"
+
+
 def section_label(text):
     """Render a thin, uppercase section label — native app style."""
     st.markdown(
@@ -422,9 +455,11 @@ def section_label(text):
     )
 
 
-def drawdown_chart(data, date_col="Date", value_col="Total Value", height=None, show_legend=True, show_labels=False):
+def drawdown_chart(data, date_col="Date", value_col="Total Value", wd_col=None, height=None, show_legend=True, show_labels=False):
     data = data.sort_values(date_col).copy()
     data["Peak"] = data[value_col].cummax()
+    if wd_col and wd_col in data.columns:
+        data["Peak"] = data["Peak"] + data[wd_col]
 
     fig = go.Figure()
 
@@ -474,7 +509,7 @@ def drawdown_chart(data, date_col="Date", value_col="Total Value", height=None, 
         text_arr = [""] * n
         # Last value label
         if n >= 2:
-            text_arr[-1] = _fmt(vals[-1])
+            text_arr[-1] = _mask(_fmt(vals[-1]))
         # Peak label — show where all-time high was reached
         if n >= 3:
             peak_idx = int(data[value_col].idxmax())
@@ -482,7 +517,7 @@ def drawdown_chart(data, date_col="Date", value_col="Total Value", height=None, 
             peak_pos = data.index.get_loc(peak_idx)
             # Only add if peak isn't the last point (avoid overlap)
             if peak_pos != n - 1:
-                text_arr[peak_pos] = _fmt(vals[peak_pos])
+                text_arr[peak_pos] = _mask(_fmt(vals[peak_pos]))
         value_trace.update(
             mode="lines+markers+text",
             text=text_arr,
@@ -742,6 +777,8 @@ def _on_date_picker_change():
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### Filters")
+    st.toggle("Dark Mode", value=st.session_state.dark_mode, key="dark_mode")
+    st.toggle("Privacy Mode", value=False, key="privacy_mode")
 
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
@@ -916,7 +953,7 @@ with spark_placeholder.container():
             <div class="spark-row">
                 <div class="spark-label" title="{acct}">{acct}</div>
                 <div style="display: flex; align-items: center;">{svg}</div>
-                <div class="spark-val">${current:,.0f}</div>
+                <div class="spark-val">{_mask(f"${current:,.0f}")}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -937,18 +974,18 @@ st.markdown(f"""
             font-size: clamp(32px, 8vw, 64px);
             font-weight: 700; color: {C["text"]}; line-height: 1.1; white-space: nowrap; letter-spacing: -0.04em;
         ">
-            ${total_value:,.0f}
+            {_mask(f"${total_value:,.0f}")}
         </div>
     </div>
     <div style="display: flex; align-items: flex-end; gap: 16px; padding-bottom: 4px; flex-wrap: wrap;">
         <div>
             <div style="font-size: 10px; color: {C["text_dim"]}; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
-            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {d_color}; white-space: nowrap;">{delta_value}</div>
+            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {d_color}; white-space: nowrap;">{_mask(delta_value, "pct")}</div>
         </div>
         <div style="width: 1px; height: 24px; background: {C["border"]}; opacity: 0.5; margin-bottom: 4px;"></div>
         <div>
             <div style="font-size: 10px; color: {C["text_dim"]}; margin-bottom: 2px; text-transform: uppercase;">YTD Return</div>
-            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {ytd_color(portfolio_ytd)}; white-space: nowrap;">{portfolio_ytd:+.1f}%</div>
+            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {ytd_color(portfolio_ytd)}; white-space: nowrap;">{_mask(f"{portfolio_ytd:+.1f}%", "pct")}</div>
         </div>
     </div>
 </div>
@@ -964,19 +1001,19 @@ st.markdown(f"""
 <div class="metric-grid">
     <div class="metric-item">
         <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">BUYING POWER</div>
-        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">${total_cash:,.0f}</div>
+        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">{_mask(f"${total_cash:,.0f}")}</div>
     </div>
     <div class="metric-item">
         <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">MARGIN USED</div>
-        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">${total_margin:,.0f}</div>
+        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">{_mask(f"${total_margin:,.0f}")}</div>
     </div>
     <div class="metric-item">
         <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">NET DEPOSITS</div>
-        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">${net_deposits:,.0f}</div>
+        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">{_mask(f"${net_deposits:,.0f}")}</div>
     </div>
     <div class="metric-item">
         <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">ALPHA (vs SPY)</div>
-        <div class="mono" style="font-size: 16px; color: {alpha_col};">{alpha:+.1f}%</div>
+        <div class="mono" style="font-size: 16px; color: {alpha_col};">{_mask(f"{alpha:+.1f}%", "pct")}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -997,7 +1034,7 @@ if not _all_time_totals.empty:
         _rgba = "248, 44, 44" if _port_dd_pct > 15 else "245, 158, 11"
         _peak_idx = _all_time_totals[_all_time_totals == _peak].index[-1]
 
-        st.markdown(f'<div style="background: rgba({_rgba}, 0.1); border: 1px solid {_color}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: {_color}; flex-shrink: 0;"></span><div><div style="color: {_color}; font-weight: 600; font-size: 13px; letter-spacing: 0.02em;">PORTFOLIO DRAWDOWN ACTIVE</div><div style="color: {_color}; font-size: 12px; opacity: 0.9;">Current level is <span class="mono" style="font-weight: 700;">-{_port_dd_pct:.1f}%</span> from peak ({_peak_idx:%b %d}).</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background: rgba({_rgba}, 0.1); border: 1px solid {_color}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: {_color}; flex-shrink: 0;"></span><div><div style="color: {_color}; font-weight: 600; font-size: 13px; letter-spacing: 0.02em;">PORTFOLIO DRAWDOWN ACTIVE</div><div style="color: {_color}; font-size: 12px; opacity: 0.9;">Current level is <span class="mono" style="font-weight: 700;">{_mask(f"-{_port_dd_pct:.1f}%", "pct")}</span> from peak ({_peak_idx:%b %d}).</div></div></div>', unsafe_allow_html=True)
 
     # 3. Account Risk Matrix (The "System Status" Grid)
     status_items = []
@@ -1017,25 +1054,25 @@ if not _all_time_totals.empty:
             s_bg = "rgba(0, 210, 106, 0.1)"
             s_border = C["positive"]
             s_opacity = "1.0"
-            s_text = "ATH"
+            s_text = _mask("ATH", "pct")
         elif a_dd > 15:
             s_color = C["negative"]
             s_bg = "rgba(248, 44, 44, 0.15)"
             s_border = C["negative"]
             s_opacity = "1.0"
-            s_text = f"-{a_dd:.1f}%"
+            s_text = _mask(f"-{a_dd:.1f}%", "pct")
         elif a_dd > 7:
             s_color = C["warning"]
             s_bg = "rgba(245, 158, 11, 0.15)"
             s_border = C["warning"]
             s_opacity = "1.0"
-            s_text = f"-{a_dd:.1f}%"
+            s_text = _mask(f"-{a_dd:.1f}%", "pct")
         else:
             s_color = C["text_dim"]
             s_bg = "transparent"
             s_border = C["border"]
             s_opacity = "0.5"
-            s_text = f"-{a_dd:.1f}%"
+            s_text = _mask(f"-{a_dd:.1f}%", "pct")
 
         # Render
         status_items.append(f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: {s_bg}; border: 1px solid {s_border}; border-radius: 4px; padding: 6px 10px; opacity: {s_opacity}; min-width: 140px; flex: 1;"><span style="font-size: 10px; font-weight: 600; color: {s_color}; text-transform: uppercase; letter-spacing: 0.05em;">{acct}</span><span class="mono" style="font-size: 11px; color: {s_color};">{s_text}</span></div>')
@@ -1098,7 +1135,7 @@ with tab1:
         _last_val = trend["Total Value"].iloc[-1]
         fig.add_annotation(
             x=trend["Date"].iloc[-1], y=_last_val,
-            text=_fmt(_last_val), showarrow=False,
+            text=_mask(_fmt(_last_val)), showarrow=False,
             font=dict(color=C["primary"], size=11, family="JetBrains Mono"),
             yshift=14,
         )
@@ -1114,11 +1151,11 @@ with tab1:
         if not ytd_portfolio.empty:
             port_daily = ytd_portfolio.groupby("Date")["Total Value"].sum().reset_index()
             port_daily = port_daily.sort_values("Date")
-            port_daily["Portfolio"] = (port_daily["Total Value"] / port_daily["Total Value"].iloc[0] - 1) * 100
+            port_daily["Portfolio"] = ((port_daily["Total Value"] / port_daily["Total Value"].iloc[0] - 1) * 100).round(2)
 
             bench = benchmark_df_ytd.copy()
-            bench["SPY_pct"] = (bench["SPY"] / bench["SPY"].iloc[0] - 1) * 100
-            bench["QQQ_pct"] = (bench["QQQ"] / bench["QQQ"].iloc[0] - 1) * 100
+            bench["SPY_pct"] = ((bench["SPY"] / bench["SPY"].iloc[0] - 1) * 100).round(2)
+            bench["QQQ_pct"] = ((bench["QQQ"] / bench["QQQ"].iloc[0] - 1) * 100).round(2)
 
             fig_bench = go.Figure()
             fig_bench.add_trace(go.Scatter(
@@ -1136,7 +1173,7 @@ with tab1:
                 name="QQQ", line=dict(color="#3B82F6", width=1.5, dash="dash"),
                 mode="lines",
             ))
-            fig_bench = style_chart(fig_bench, height=280)
+            fig_bench = style_chart(fig_bench, height=280, dollar_format=False)
             fig_bench.update_layout(showlegend=True, legend=dict(
                 orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
                 font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
@@ -1150,8 +1187,8 @@ with tab1:
     section_label("Risk Monitor")
     
     # 1. Overall Portfolio Risk
-    daily_totals = fdf.groupby("Date")["Total Value"].sum().reset_index()
-    fig_risk = drawdown_chart(daily_totals, height=300, show_labels=True)
+    daily_totals = fdf.groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum"}).reset_index()
+    fig_risk = drawdown_chart(daily_totals, wd_col="Cum_WD", height=300, show_labels=True)
     add_annotation_markers(fig_risk, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Total Portfolio</div>', unsafe_allow_html=True)
     st.plotly_chart(fig_risk, use_container_width=True, config=CHART_CONFIG, key="ov_risk")
@@ -1162,20 +1199,20 @@ with tab1:
     # We stack them to keep the "same size" (Full Resolution) as requested
     
     # GROWTH RISK
-    daily_growth = fdf[fdf["Bucket"] == "Growth"].groupby("Date")["Total Value"].sum().reset_index()
+    daily_growth = fdf[fdf["Bucket"] == "Growth"].groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum"}).reset_index()
     if not daily_growth.empty:
         st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Growth Bucket</div>', unsafe_allow_html=True)
-        fig_growth = drawdown_chart(daily_growth, height=300, show_labels=True)
+        fig_growth = drawdown_chart(daily_growth, wd_col="Cum_WD", height=300, show_labels=True)
         # We can add a specific color override if you want Growth to look 'hotter', 
         # but for now we keep the uniform "HUD" style.
         st.plotly_chart(fig_growth, use_container_width=True, config=CHART_CONFIG, key="risk_growth")
         st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
     # STABLE RISK
-    daily_stable = fdf[fdf["Bucket"] == "Stable"].groupby("Date")["Total Value"].sum().reset_index()
+    daily_stable = fdf[fdf["Bucket"] == "Stable"].groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum"}).reset_index()
     if not daily_stable.empty:
         st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Stable Bucket</div>', unsafe_allow_html=True)
-        fig_stable = drawdown_chart(daily_stable, height=300, show_labels=True)
+        fig_stable = drawdown_chart(daily_stable, wd_col="Cum_WD", height=300, show_labels=True)
         st.plotly_chart(fig_stable, use_container_width=True, config=CHART_CONFIG, key="risk_stable")
 
 
@@ -1224,9 +1261,9 @@ with tab2:
         _trows += (
             f'<tr style="border-bottom: 1px solid {C["surface"]};">'
             f'<td style="padding: 8px 8px 8px 0; font-size: 13px; font-weight: 500; color: {C["text"]};">{row["Account"]}</td>'
-            f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {C["text_sec"]};">{_fmt(row["Current Value"])}</td>'
-            f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {chg_color};">{row["% Change"]:+.1f}%</td>'
-            f'<td class="mono" style="text-align: right; padding: 8px 0 8px 8px; font-size: 13px; color: {C["text_muted"]};">{row["Contribution"]:.0f}%</td>'
+            f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {C["text_sec"]};">{_mask(_fmt(row["Current Value"]))}</td>'
+            f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {chg_color};">{_mask(f"{row['% Change']:+.1f}%", "pct")}</td>'
+            f'<td class="mono" style="text-align: right; padding: 8px 0 8px 8px; font-size: 13px; color: {C["text_muted"]};">{_mask(f"{row['Contribution']:.0f}%", "pct")}</td>'
             f'</tr>'
         )
     st.markdown(
@@ -1299,15 +1336,15 @@ with tab2:
             <div class="flex-row">
                 <div>
                     <div class="sub-label">Current Value</div>
-                    <div class="sub-val">${current_value:,.0f}</div>
+                    <div class="sub-val">{_mask(f"${current_value:,.0f}")}</div>
                 </div>
                 <div style="text-align: center;">
                     <div class="sub-label">Net Deposits</div>
-                    <div class="sub-val" style="color: {C["text_sec"]};">${acct_net_deposits:,.0f}</div>
+                    <div class="sub-val" style="color: {C["text_sec"]};">{_mask(f"${acct_net_deposits:,.0f}")}</div>
                 </div>
                 <div style="text-align: right;">
                     <div class="sub-label">YTD Return</div>
-                    <div class="sub-val" style="color: {ytd_c};">{current_ytd:+.1f}%</div>
+                    <div class="sub-val" style="color: {ytd_c};">{_mask(f"{current_ytd:+.1f}%", "pct")}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -1380,9 +1417,9 @@ with tab3:
         pivot["Allocation"] = (pivot["Total Value"] / total_value * 100)
 
         display_pivot = pivot.copy()
-        display_pivot["Total Value"] = display_pivot["Total Value"].apply(lambda x: f"${x:,.0f}")
-        display_pivot["Cash"] = display_pivot["Cash"].apply(lambda x: f"${x:,.0f}")
-        display_pivot["Allocation"] = display_pivot["Allocation"].apply(lambda x: f"{x:.1f}%")
+        display_pivot["Total Value"] = display_pivot["Total Value"].apply(lambda x: _mask(f"${x:,.0f}"))
+        display_pivot["Cash"] = display_pivot["Cash"].apply(lambda x: _mask(f"${x:,.0f}"))
+        display_pivot["Allocation"] = display_pivot["Allocation"].apply(lambda x: _mask(f"{x:.1f}%", "pct"))
 
         st.dataframe(
             display_pivot, use_container_width=True, hide_index=True, height=400,
@@ -1401,7 +1438,7 @@ with tab3:
         labels={"Pct": "Allocation %"},
     )
     fig_bt.update_traces(line=dict(width=1))
-    fig_bt = style_chart(fig_bt, height=300)
+    fig_bt = style_chart(fig_bt, height=300, dollar_format=False)
     fig_bt.update_layout(showlegend=True, legend=dict(
         orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
         font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
@@ -1467,19 +1504,19 @@ def render_cashflow_tab():
     <div class="metric-grid">
         <div class="metric-item">
             <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">NET CASH FLOW</div>
-            <div class="mono" style="font-size: 16px; color: {net_color};">{"-" if net_flow < 0 else ""}${abs(net_flow):,.0f}</div>
+            <div class="mono" style="font-size: 16px; color: {net_color};">{_mask(f'{"-" if net_flow < 0 else ""}${abs(net_flow):,.0f}')}</div>
         </div>
         <div class="metric-item">
             <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">TOTAL INCOME</div>
-            <div class="mono" style="font-size: 16px; color: {C["positive"]};">${total_income:,.0f}</div>
+            <div class="mono" style="font-size: 16px; color: {C["positive"]};">{_mask(f"${total_income:,.0f}")}</div>
         </div>
         <div class="metric-item">
             <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">TOTAL SPENDING</div>
-            <div class="mono" style="font-size: 16px; color: {C["negative"]};">${total_spending:,.0f}</div>
+            <div class="mono" style="font-size: 16px; color: {C["negative"]};">{_mask(f"${total_spending:,.0f}")}</div>
         </div>
         <div class="metric-item">
             <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">SAVINGS RATE</div>
-            <div class="mono" style="font-size: 16px; color: {sr_color};">{savings_rate:+.1f}%</div>
+            <div class="mono" style="font-size: 16px; color: {sr_color};">{_mask(f"{savings_rate:+.1f}%", "pct")}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1616,7 +1653,7 @@ def render_cashflow_tab():
         def _lbl(name, amt):
             display = SUBCAT_DISPLAY.get(name, name)
             pct = (amt / ref_total * 100) if ref_total > 0 else 0
-            return f"{display}\n${amt:,.0f}\n{pct:.0f}%"
+            return f"{display}\n{_mask(f'${amt:,.0f}')}\n{_mask(f'{pct:.0f}%', 'pct')}"
 
         # ── 3-column layout: Income → Groups (+Savings) → Subcategories ──
         labels, node_colors, node_x, node_y, node_customdata = [], [], [], [], []
@@ -1658,12 +1695,12 @@ def render_cashflow_tab():
 
         # ── Node 0: Income (col 1, vertically centered) ──
         income_idx = 0
-        labels.append(f"Income\n${total_inc:,.0f}\n100%")
-        node_colors.append("#E0E0E0")
+        labels.append(f"Income\n{_mask(f'${total_inc:,.0f}')}\n100%")
+        node_colors.append(C["text_muted"])
         node_x.append(X_COL1)
         node_y.append(0.5)
-        inc_lines = [f"  {c}: ${float(income_df[c]):,.0f}" for c in income_df.sort_values(ascending=False).index]
-        node_customdata.append(["Income", f"{total_inc:,.0f}", "100%", "<br>".join(inc_lines)])
+        inc_lines = [f"  {c}: {_mask(f'${float(income_df[c]):,.0f}')}" for c in income_df.sort_values(ascending=False).index]
+        node_customdata.append(["Income", _mask(f"{total_inc:,.0f}", "num"), "100%", "<br>".join(inc_lines)])
 
         # ── Col 2 nodes: groups + savings ──
         group_node_idx = {}
@@ -1673,16 +1710,16 @@ def render_cashflow_tab():
             idx = len(labels)
             if name == "Savings":
                 sav_pct = (savings / total_inc * 100) if total_inc > 0 else 0
-                labels.append(f"Savings\n${val:,.0f}\n{sav_pct:.0f}%")
+                labels.append(f"Savings\n{_mask(f'${val:,.0f}')}\n{_mask(f'{sav_pct:.0f}%', 'pct')}")
                 savings_node_idx = idx
-                node_customdata.append(["Savings", f"{val:,.0f}", f"{sav_pct:.1f}%", ""])
+                node_customdata.append(["Savings", _mask(f"{val:,.0f}", "num"), _mask(f"{sav_pct:.1f}%", "pct"), ""])
             elif len(subcats) == 1:
                 # Single subcat — show the specific category name
                 labels.append(_lbl(subcats[0], val))
                 group_node_idx[name] = idx
                 dn = SUBCAT_DISPLAY.get(subcats[0], subcats[0])
                 pct = (val / ref_total * 100) if ref_total > 0 else 0
-                node_customdata.append([dn, f"{val:,.0f}", f"{pct:.1f}%", ""])
+                node_customdata.append([dn, _mask(f"{val:,.0f}", "num"), _mask(f"{pct:.1f}%", "pct"), ""])
             else:
                 # Multi-subcat group: blank Sankey label, use annotation on left side
                 labels.append("")
@@ -1691,9 +1728,9 @@ def render_cashflow_tab():
                 sub_lines = []
                 for c in sorted(subcats, key=lambda c: -float(expense_df[c])):
                     dn = SUBCAT_DISPLAY.get(c, c)
-                    sub_lines.append(f"  {dn}: ${float(expense_df[c]):,.0f}")
+                    sub_lines.append(f"  {dn}: {_mask(f'${float(expense_df[c]):,.0f}')}")
                 pct = (val / ref_total * 100) if ref_total > 0 else 0
-                node_customdata.append([name, f"{val:,.0f}", f"{pct:.1f}%", "<br>".join(sub_lines)])
+                node_customdata.append([name, _mask(f"{val:,.0f}", "num"), _mask(f"{pct:.1f}%", "pct"), "<br>".join(sub_lines)])
             node_colors.append(color)
             node_x.append(X_COL2)
             node_y.append(col2_yc[i])
@@ -1732,7 +1769,7 @@ def render_cashflow_tab():
                 node_x.append(X_COL3)
                 node_y.append(sub_y + sub_h / 2.0)
                 pct = (cat_val / ref_total * 100) if ref_total > 0 else 0
-                node_customdata.append([SUBCAT_DISPLAY.get(cat, cat), f"{cat_val:,.0f}", f"{pct:.1f}%", ""])
+                node_customdata.append([SUBCAT_DISPLAY.get(cat, cat), _mask(f"{cat_val:,.0f}", "num"), _mask(f"{pct:.1f}%", "pct"), ""])
                 sub_y += sub_h + sub_gap
 
         # ── Links ──
@@ -1764,7 +1801,13 @@ def render_cashflow_tab():
                 link_colors.append(_hex_to_rgba(g_color, 0.3))
 
         # ── Hover templates ──
+        _priv = st.session_state.get("privacy_mode", False)
         node_hover = (
+            "<b>%{customdata[0]}</b><br>"
+            "$***<br>"
+            "**% of spending"
+            "<extra></extra>"
+        ) if _priv else (
             "<b>%{customdata[0]}</b><br>"
             "$%{customdata[1]}<br>"
             "%{customdata[2]} of spending"
@@ -1772,6 +1815,10 @@ def render_cashflow_tab():
             "<extra></extra>"
         )
         link_hover = (
+            "%{source.label} → %{target.label}<br>"
+            "$***"
+            "<extra></extra>"
+        ) if _priv else (
             "%{source.label} → %{target.label}<br>"
             "$%{value:,.0f}"
             "<extra></extra>"
@@ -1849,7 +1896,7 @@ def render_cashflow_tab():
                 for bcat in list(st.session_state.budgets.keys()):
                     bcol1, bcol2 = st.columns([3, 1])
                     with bcol1:
-                        st.caption(f"{bcat}: ${st.session_state.budgets[bcat]:,.0f}")
+                        st.caption(f"{bcat}: {_mask(f'${st.session_state.budgets[bcat]:,.0f}')}")
                     with bcol2:
                         if st.button("✕", key=f"del_budget_{bcat}"):
                             del st.session_state.budgets[bcat]
@@ -1874,7 +1921,7 @@ def render_cashflow_tab():
             <div style="margin-bottom: 12px;">
                 <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
                     <span style="font-size: 12px; color: {C["text_muted"]};">{bcat}</span>
-                    <span class="mono" style="font-size: 11px; color: {C["text_sec"]};">${spent:,.0f} / ${limit:,.0f}</span>
+                    <span class="mono" style="font-size: 11px; color: {C["text_sec"]};">{_mask(f"${spent:,.0f}")} / {_mask(f"${limit:,.0f}")}</span>
                 </div>
                 <div style="height: 6px; background: {C["surface2"]}; border-radius: 3px; overflow: hidden;">
                     <div style="width: {bar_width}%; height: 100%; background: {bar_color}; border-radius: 3px; transition: width 0.3s ease;"></div>
@@ -1926,7 +1973,7 @@ def render_cashflow_tab():
                     line=dict(color=C["bg"], width=2),
                 ),
                 textinfo="none",
-                hovertemplate="%{label}<br>$%{value:,.2f} (%{percent})<extra></extra>",
+                hovertemplate="%{label}<br>$*** (**%)<extra></extra>" if st.session_state.get("privacy_mode") else "%{label}<br>$%{value:,.2f} (%{percent})<extra></extra>",
             ))
             dim = C["text_dim"]
             fig_donut.update_layout(
@@ -1936,7 +1983,7 @@ def render_cashflow_tab():
                 plot_bgcolor="rgba(0,0,0,0)",
                 height=320,
                 annotations=[dict(
-                    text=f"${total_spending:,.2f}<br><span style='font-size:11px;color:{dim}'>Total</span>",
+                    text=f"{_mask(f'${total_spending:,.2f}')}<br><span style='font-size:11px;color:{dim}'>Total</span>",
                     x=0.5, y=0.5,
                     font=dict(size=16, color=C["text"], family="JetBrains Mono"),
                     showarrow=False,
@@ -1957,7 +2004,7 @@ def render_cashflow_tab():
                     f'<div style="font-size:13px;font-weight:500;color:{C["text"]};'
                     f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{cat}</div>'
                     f'<div class="mono" style="font-size:12px;color:{C["text_muted"]};">'
-                    f'${amt:,.2f} ({pct:.1f}%)</div>'
+                    f'{_mask(f"${amt:,.2f}")} ({_mask(f"{pct:.1f}%", "pct")})</div>'
                     f'</div></div>'
                 )
             st.markdown(
@@ -2042,7 +2089,7 @@ def render_cashflow_tab():
             desc = str(row.get("Description", ""))[:40]
             amt = row["Amount"]
             amt_color = C["positive"] if amt > 0 else C["negative"]
-            amt_str = f"${abs(amt):,.2f}" if amt >= 0 else f"-${abs(amt):,.2f}"
+            amt_str = _mask(f"${abs(amt):,.2f}" if amt >= 0 else f"-${abs(amt):,.2f}")
             dt_str = row["Date"].strftime("%b %d") if pd.notna(row["Date"]) else ""
             trows += (
                 f'<tr style="border-bottom: 1px solid {C["surface"]};">'
@@ -2164,26 +2211,26 @@ with tab5:
             # Use a simple lambda for safe string formatting
             def color_span(val, color=None):
                 c = color if color else (C["positive"] if val >= 0 else C["negative"])
-                return f'<span style="color:{c}">${val:,.0f}</span>'
+                return f'<span style="color:{c}">{_mask(f"${val:,.0f}")}</span>'
 
             # --- RENDER HTML (Flat String to prevent errors) ---
             st.markdown(f"""
 <div class="metric-grid">
     <div class="metric-item">
         <div class="sub-label">TOTAL P/L</div>
-        <div class="mono" style="font-size: 20px; color: {pl_c};">${total_pl:,.0f}</div>
+        <div class="mono" style="font-size: 20px; color: {pl_c};">{_mask(f"${total_pl:,.0f}")}</div>
     </div>
     <div class="metric-item">
         <div class="sub-label">WIN RATE</div>
-        <div class="mono" style="font-size: 20px; color: {C['text']};">{win_rate:.0f}% <span style="font-size:12px;color:{C['text_dim']}">({n_wins}/{count})</span></div>
+        <div class="mono" style="font-size: 20px; color: {C['text']};">{_mask(f"{win_rate:.0f}%", "pct")} <span style="font-size:12px;color:{C['text_dim']}">({_mask(f"{n_wins}", "num")}/{_mask(f"{count}", "num")})</span></div>
     </div>
     <div class="metric-item">
         <div class="sub-label">PROFIT FACTOR</div>
-        <div class="mono" style="font-size: 20px; color: {pf_c};">{profit_factor:.2f}</div>
+        <div class="mono" style="font-size: 20px; color: {pf_c};">{_mask(f"{profit_factor:.2f}", "num")}</div>
     </div>
     <div class="metric-item">
         <div class="sub-label">EXPECTANCY</div>
-        <div class="mono" style="font-size: 20px; color: {C['text']};">${expectancy:,.0f}<span style="font-size:12px;color:{C['text_dim']}">/trade</span></div>
+        <div class="mono" style="font-size: 20px; color: {C['text']};">{_mask(f"${expectancy:,.0f}")}<span style="font-size:12px;color:{C['text_dim']}">/trade</span></div>
     </div>
     <div class="metric-item">
         <div class="sub-label">AVG WIN / LOSS</div>
@@ -2195,7 +2242,7 @@ with tab5:
     </div>
     <div class="metric-item">
         <div class="sub-label">PAYOFF RATIO</div>
-        <div class="mono" style="font-size: 16px; color: {C['text']};">1 : {payoff_ratio:.1f}</div>
+        <div class="mono" style="font-size: 16px; color: {C['text']};">{_mask(f"1 : {payoff_ratio:.1f}", "num")}</div>
     </div>
         <div class="metric-item">
         <div class="sub-label">ACTIVE TRADES</div>
@@ -2235,7 +2282,7 @@ with tab5:
                 fig_curve.add_annotation(
                     x=daily_pl["Exit Date"].iloc[-1], 
                     y=daily_pl["Equity"].iloc[-1],
-                    text=f"Max DD: ${max_dd:,.0f}",
+                    text=_mask(f"Max DD: ${max_dd:,.0f}"),
                     showarrow=False, yshift=10,
                     font=dict(color=C["negative"], size=10)
                 )
@@ -2258,7 +2305,7 @@ with tab5:
                     x=setup_stats.values,
                     orientation='h',
                     marker=dict(color=colors, cornerradius=4), 
-                    text=setup_stats.apply(lambda x: f"${x:,.0f}"),
+                    text=setup_stats.apply(lambda x: _mask(f"${x:,.0f}")),
                     textposition="auto"
                 ))
                 fig_setup = style_chart(fig_setup, height=320)
@@ -2286,15 +2333,17 @@ with tab5:
         if not display_df.empty:
             display_df = display_df.sort_values(["Exit Date", "Entry Date"], ascending=False)
             
+            _pf = "***" if st.session_state.get("privacy_mode") else "$%d"
+            _nf = "***" if st.session_state.get("privacy_mode") else "%d"
             st.dataframe(
                 display_df,
                 column_config={
                     "Entry Date": st.column_config.DateColumn("Entry", format="MMM DD"),
                     "Exit Date": st.column_config.DateColumn("Exit", format="MMM DD"),
-                    "P/L": st.column_config.NumberColumn("P/L", format="$%d"),
-                    "Cost Basis": st.column_config.NumberColumn("Cost", format="$%d"),
-                    "Proceeds": st.column_config.NumberColumn("Proceeds", format="$%d"),
-                    "Shares": st.column_config.NumberColumn("Size", format="%d"),
+                    "P/L": st.column_config.NumberColumn("P/L", format=_pf),
+                    "Cost Basis": st.column_config.NumberColumn("Cost", format=_pf),
+                    "Proceeds": st.column_config.NumberColumn("Proceeds", format=_pf),
+                    "Shares": st.column_config.NumberColumn("Size", format=_nf),
                 },
                 hide_index=True,
                 use_container_width=True,
