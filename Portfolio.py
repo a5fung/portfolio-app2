@@ -1402,45 +1402,32 @@ with tab1:
     _year_labels = [str(y) for y in _hm_pivot.index]
 
     _priv = st.session_state.get("privacy_mode", False)
-    _text = [["***" if _priv else (f"{v:+.1f}%" if pd.notna(v) else "")
-              for v in row] for row in _hm_pivot.values]
+    _vabs = max(abs(np.nanmin(_hm_pivot.values)), abs(np.nanmax(_hm_pivot.values)), 0.01)
 
-    _colorscale = [
-        [0.0, C["negative"]],
-        [0.5, C["surface2"]],
-        [1.0, C["positive"]],
-    ]
+    def _hm_bg(val):
+        if pd.isna(val): return "transparent"
+        alpha = 0.2 + 0.65 * min(abs(val) / _vabs, 1)
+        return _hex_to_rgba(C["negative"] if val < 0 else C["positive"], alpha)
 
-    fig_hm = go.Figure(data=go.Heatmap(
-        z=_hm_pivot.values,
-        x=_month_labels,
-        y=_year_labels,
-        text=_text,
-        texttemplate="%{text}",
-        textfont=dict(size=9, family="JetBrains Mono"),
-        colorscale=_colorscale,
-        zmid=0,
-        showscale=False,
-        hovertemplate=(
-            "<b>%{x} %{y}</b><br>***<extra></extra>" if _priv else
-            "<b>%{x} %{y}</b><br>%{z:+.1f}%<extra></extra>"
-        ),
-        xgap=2, ygap=2,
-    ))
+    _th_style = f"padding:2px 0;font-size:9px;font-weight:600;color:{C['text_muted']};text-align:center;"
+    _hdr = "".join(f'<th style="{_th_style}">{m}</th>' for m in _month_labels)
+    _rows_html = []
+    for i, yr in enumerate(_year_labels):
+        _cells = []
+        for j in range(12):
+            v = _hm_pivot.values[i][j]
+            bg = _hm_bg(v)
+            txt = "***" if _priv else (f"{v:+.0f}" if pd.notna(v) else "")
+            title = "" if _priv or pd.isna(v) else f' title="{_month_labels[j]} {yr}: {v:+.1f}%"'
+            _cells.append(f'<td style="background:{bg};text-align:center;padding:4px 0;border-radius:3px;font-size:8px;color:{C["text"]};"{title}>{txt}</td>')
+        _rows_html.append(f'<tr><td style="padding:2px 4px 2px 0;font-size:10px;font-weight:600;color:{C["text_muted"]};white-space:nowrap;">{yr}</td>{"".join(_cells)}</tr>')
 
-    fig_hm.update_layout(
-        template="plotly_dark" if st.session_state.dark_mode else "plotly_white",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=0, t=10, b=0),
-        height=max(len(_year_labels) * 24, 80),
-        xaxis=dict(side="top", tickfont=dict(color=C["text_muted"], size=10), fixedrange=True),
-        yaxis=dict(dtick=1, autorange="reversed", tickfont=dict(color=C["text_muted"], size=10), fixedrange=True),
-        dragmode=False,
-        hoverlabel=dict(bgcolor=C["surface2"], font_size=12, font_family="JetBrains Mono", bordercolor=C["border"]),
+    st.markdown(
+        f'<table style="width:100%;border-collapse:separate;border-spacing:2px;font-family:JetBrains Mono,monospace;">'
+        f'<thead><tr><th></th>{_hdr}</tr></thead>'
+        f'<tbody>{"".join(_rows_html)}</tbody></table>',
+        unsafe_allow_html=True,
     )
-
-    st.plotly_chart(fig_hm, use_container_width=True, config=CHART_CONFIG, key="monthly_hm")
 
 
 # ═══════════════════════════════════════════
