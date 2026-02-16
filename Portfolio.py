@@ -1401,9 +1401,11 @@ with tab1:
     _month_labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     _year_labels = [str(y) for y in _hm_pivot.index]
 
+    # Transpose: rows=months, cols=years (wider cells on mobile)
     _priv = st.session_state.get("privacy_mode", False)
+    _z_t = _hm_pivot.values.T  # shape (12, n_years)
     _text = [["***" if _priv else (f"{v:+.1f}%" if pd.notna(v) else "")
-              for v in row] for row in _hm_pivot.values]
+              for v in row] for row in _z_t]
 
     _colorscale = [
         [0.0, C["negative"]],
@@ -1412,9 +1414,9 @@ with tab1:
     ]
 
     fig_hm = go.Figure(data=go.Heatmap(
-        z=_hm_pivot.values,
-        x=_month_labels,
-        y=_year_labels,
+        z=_z_t,
+        x=_year_labels,
+        y=_month_labels,
         text=_text,
         texttemplate="%{text}",
         textfont=dict(size=10, family="JetBrains Mono"),
@@ -1422,8 +1424,8 @@ with tab1:
         zmid=0,
         showscale=False,
         hovertemplate=(
-            "<b>%{x} %{y}</b><br>***<extra></extra>" if _priv else
-            "<b>%{x} %{y}</b><br>%{z:+.1f}%<extra></extra>"
+            "<b>%{y} %{x}</b><br>***<extra></extra>" if _priv else
+            "<b>%{y} %{x}</b><br>%{z:+.1f}%<extra></extra>"
         ),
         xgap=2, ygap=2,
     ))
@@ -1433,9 +1435,9 @@ with tab1:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=0, r=0, t=10, b=0),
-        height=max(len(_year_labels) * 36, 100),
-        xaxis=dict(side="top", tickfont=dict(color=C["text_muted"], size=10), fixedrange=True),
-        yaxis=dict(autorange="reversed", tickfont=dict(color=C["text_muted"], size=10), fixedrange=True, dtick=1),
+        height=340,
+        xaxis=dict(side="top", dtick=1, tickfont=dict(color=C["text_muted"], size=10), fixedrange=True),
+        yaxis=dict(autorange="reversed", tickfont=dict(color=C["text_muted"], size=10), fixedrange=True),
         dragmode=False,
         hoverlabel=dict(bgcolor=C["surface2"], font_size=12, font_family="JetBrains Mono", bordercolor=C["border"]),
     )
