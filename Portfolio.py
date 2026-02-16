@@ -529,7 +529,7 @@ def _load_goals():
             if isinstance(data, dict):
                 return [data] if data.get("target") else []
             if isinstance(data, list):
-                return data
+                return [g for g in data if isinstance(g, dict) and "target" in g and "label" in g]
         except (json.JSONDecodeError, OSError):
             pass
     return []
@@ -951,7 +951,7 @@ with st.sidebar:
             st.markdown("---")
             for gi, g in enumerate(st.session_state.goals):
                 gcol1, gcol2 = st.columns([4, 1])
-                gcol1.caption(f"**{g['label']}** — ${g['target']:,.0f}")
+                gcol1.caption(f"**{g['label']}** — {_mask(f'${g[\"target\"]:,.0f}')}")
                 if gcol2.button("✕", key=f"del_goal_{gi}"):
                     st.session_state.goals.pop(gi)
                     _save_goals(st.session_state.goals)
@@ -1081,7 +1081,7 @@ with spark_placeholder.container():
 # --- HEADER: THE HUD (Responsive) ---
 # 1. The "Hero" Row — single block, flexbox desktop / sticky mobile
 is_pos = "+" in str(delta_value) if delta_value else False
-d_color = C["positive"] if is_pos else C["negative"]
+d_color = C["positive"] if is_pos else C["negative"] if delta_value else C["text_muted"]
 
 st.markdown(f"""
 <div class="hero-hud">
@@ -1099,7 +1099,7 @@ st.markdown(f"""
     <div style="display: flex; align-items: flex-end; gap: 16px; padding-bottom: 4px; flex-wrap: wrap;">
         <div>
             <div style="font-size: 10px; color: {C["text_dim"]}; margin-bottom: 2px; text-transform: uppercase;">Period Change</div>
-            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {d_color}; white-space: nowrap;">{_mask(delta_value, "pct")}</div>
+            <div class="mono" style="font-size: clamp(16px, 4vw, 24px); color: {d_color}; white-space: nowrap;">{_mask(delta_value or "—", "pct")}</div>
         </div>
         <div style="width: 1px; height: 24px; background: {C["border"]}; opacity: 0.5; margin-bottom: 4px;"></div>
         <div>
@@ -1221,7 +1221,7 @@ if not _all_time_totals.empty:
             s_bg = _hex_to_rgba(C["positive"], 0.1)
             s_border = C["positive"]
             s_opacity = "1.0"
-            s_text = _mask("ATH", "pct")
+            s_text = _mask("ATH", "num")
         elif a_dd > 15:
             s_color = C["negative"]
             s_bg = _hex_to_rgba(C["negative"], 0.15)
@@ -1402,7 +1402,9 @@ with tab1:
     _year_labels = [str(y) for y in _hm_pivot.index]
 
     _priv = st.session_state.get("privacy_mode", False)
-    _vabs = max(abs(np.nanmin(_hm_pivot.values)), abs(np.nanmax(_hm_pivot.values)), 0.01)
+    _hm_flat = _hm_pivot.values.ravel()
+    _hm_non_nan = _hm_flat[~np.isnan(_hm_flat)]
+    _vabs = max(abs(_hm_non_nan.min()), abs(_hm_non_nan.max()), 0.01) if len(_hm_non_nan) > 0 else 0.01
 
     def _hm_bg(val):
         if pd.isna(val): return "transparent"
@@ -1614,9 +1616,11 @@ with tab3:
             latest, path=["Bucket", "Account"], values="Total Value",
             color_discrete_sequence=ACCENT_RAMP,
         )
+        _sun_priv = st.session_state.get("privacy_mode", False)
         fig_sun.update_traces(
             textinfo="label+percent entry",
             insidetextorientation="horizontal",
+            hovertemplate="<b>%{label}</b><br>***<extra></extra>" if _sun_priv else None,
         )
         fig_sun.update_layout(
             margin=dict(l=0, r=0, t=8, b=0),
@@ -1629,7 +1633,7 @@ with tab3:
         section_label("By Bucket")
         pivot = latest.groupby("Bucket")[["Total Value", "Cash"]].sum()
         pivot = pivot.sort_values("Total Value", ascending=False).reset_index()
-        pivot["Allocation"] = (pivot["Total Value"] / total_value * 100)
+        pivot["Allocation"] = (pivot["Total Value"] / total_value * 100) if total_value else 0
 
         display_pivot = pivot.copy()
         display_pivot["Total Value"] = display_pivot["Total Value"].apply(lambda x: _mask(f"${x:,.0f}"))
