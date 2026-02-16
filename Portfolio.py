@@ -1382,6 +1382,66 @@ with tab1:
         fig_stable = drawdown_chart(daily_stable, wd_col="Cum_WD", height=300, show_labels=True)
         st.plotly_chart(fig_stable, use_container_width=True, config=CHART_CONFIG, key="risk_stable")
 
+    # ── Monthly Returns Heatmap ──
+    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+    section_label("Monthly Returns")
+
+    _monthly = df.groupby("Date")["Total Value"].sum().resample("ME").last()
+    _monthly_ret = _monthly.pct_change() * 100
+
+    _hm_data = pd.DataFrame({
+        "Year": _monthly_ret.index.year,
+        "Month": _monthly_ret.index.month,
+        "Return": _monthly_ret.values,
+    })
+    _hm_pivot = _hm_data.pivot(index="Year", columns="Month", values="Return")
+    _hm_pivot = _hm_pivot.reindex(columns=range(1, 13))
+    _hm_pivot = _hm_pivot.sort_index(ascending=True)
+
+    _month_labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    _year_labels = [str(y) for y in _hm_pivot.index]
+
+    _priv = st.session_state.get("privacy_mode", False)
+    _text = [["***" if _priv else (f"{v:+.1f}%" if pd.notna(v) else "")
+              for v in row] for row in _hm_pivot.values]
+
+    _colorscale = [
+        [0.0, C["negative"]],
+        [0.5, C["surface2"]],
+        [1.0, C["positive"]],
+    ]
+
+    fig_hm = go.Figure(data=go.Heatmap(
+        z=_hm_pivot.values,
+        x=_month_labels,
+        y=_year_labels,
+        text=_text,
+        texttemplate="%{text}",
+        textfont=dict(size=10, family="JetBrains Mono"),
+        colorscale=_colorscale,
+        zmid=0,
+        showscale=False,
+        hovertemplate=(
+            "<b>%{x} %{y}</b><br>***<extra></extra>" if _priv else
+            "<b>%{x} %{y}</b><br>%{z:+.1f}%<extra></extra>"
+        ),
+        xgap=2, ygap=2,
+    ))
+
+    fig_hm.update_layout(
+        template="plotly_dark" if st.session_state.dark_mode else "plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=max(len(_year_labels) * 36, 100),
+        xaxis=dict(side="top", tickfont=dict(color=C["text_muted"], size=10), fixedrange=True),
+        yaxis=dict(autorange="reversed", tickfont=dict(color=C["text_muted"], size=10), fixedrange=True, dtick=1),
+        dragmode=False,
+        hoverlabel=dict(bgcolor=C["surface2"], font_size=12, font_family="JetBrains Mono", bordercolor=C["border"]),
+    )
+
+    st.plotly_chart(fig_hm, use_container_width=True, config=CHART_CONFIG, key="monthly_hm")
+
 
 # ═══════════════════════════════════════════
 # TAB 2: PERFORMANCE
