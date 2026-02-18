@@ -951,7 +951,8 @@ with st.sidebar:
             st.markdown("---")
             for gi, g in enumerate(st.session_state.goals):
                 gcol1, gcol2 = st.columns([4, 1])
-                gcol1.caption(f"**{g['label']}** — {_mask(f'${g[\"target\"]:,.0f}')}")
+                _gt = g['target']
+                gcol1.caption(f"**{g['label']}** — {_mask(f'${_gt:,.0f}')}")
                 if gcol2.button("✕", key=f"del_goal_{gi}"):
                     st.session_state.goals.pop(gi)
                     _save_goals(st.session_state.goals)

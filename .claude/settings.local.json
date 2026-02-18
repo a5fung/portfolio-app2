@@ -8,7 +8,11 @@
       "WebFetch(domain:www.monarch.com)",
       "WebSearch",
       "WebFetch(domain:help.monarch.com)",
-      "WebFetch(domain:www.instagram.com)"
+      "WebFetch(domain:www.instagram.com)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix CSS override clobbering inline color styles\n\nRemove div/span from the global text color override rule — these were\noverriding inline style=\"color:...\" on HUD values \\(Period Change, YTD\nReturn\\) which should be green/red based on positive/negative.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
