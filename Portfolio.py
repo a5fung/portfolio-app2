@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import numpy as np
 import math
+from streamlit_javascript import st_javascript
 
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
@@ -534,11 +535,38 @@ def _load_goals():
             pass
     return []
 
-def _save_goals(data):
-    GOALS_FILE.write_text(json.dumps(data, indent=2))
+_GOALS_LS_KEY = "portfolio_goals_v1"
 
+def _save_goals(data):
+    try:
+        GOALS_FILE.write_text(json.dumps(data, indent=2))
+    except OSError:
+        pass
+    # Queue a localStorage write on the next render
+    st.session_state._goals_ls_write = json.dumps(data)
+
+# --- Goals initialization ---
 if "goals" not in st.session_state:
-    st.session_state.goals = _load_goals()
+    st.session_state.goals = _load_goals()   # file fallback (empty after redeploy)
+    st.session_state._goals_ls_synced = False
+
+# Read goals from localStorage. Returns 0 on first render, actual value on second.
+_goals_ls_val = st_javascript(f"localStorage.getItem('{_GOALS_LS_KEY}') || 0", key="_goals_ls_read")
+
+# On second render, localStorage value is available — sync it once per session.
+if not st.session_state.get("_goals_ls_synced") and _goals_ls_val and _goals_ls_val != 0:
+    try:
+        _ls_data = json.loads(_goals_ls_val)
+        if isinstance(_ls_data, list):
+            st.session_state.goals = [g for g in _ls_data if isinstance(g, dict) and "target" in g and "label" in g]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    st.session_state._goals_ls_synced = True
+
+# Write to localStorage when a save was queued.
+if "_goals_ls_write" in st.session_state:
+    _ls_payload = st.session_state.pop("_goals_ls_write")
+    st_javascript(f"localStorage.setItem('{_GOALS_LS_KEY}', {json.dumps(_ls_payload)}); 0", key="_goals_ls_write_comp")
 
 
 def section_label(text):
