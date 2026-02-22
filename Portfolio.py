@@ -1475,8 +1475,11 @@ with tab2:
     for acct in account_order:
         s_val = _first_snap.loc[_first_snap["Account"] == acct, "Total Value"].sum()
         e_val = _last_snap.loc[_last_snap["Account"] == acct, "Total Value"].sum()
+        net_wd = fdf[fdf["Account"] == acct]["W/D"].sum()
         d_change = e_val - s_val
-        p_change = ((e_val / s_val) - 1) * 100 if s_val else 0
+        # Modified Dietz: assume cash flows land at period midpoint (0.5 weight)
+        _md_denom = s_val + 0.5 * net_wd
+        p_change = (e_val - s_val - net_wd) / _md_denom * 100 if _md_denom else 0
         contrib = (d_change / _total_dollar_change) * 100 if _total_dollar_change else 0
         _attr_rows.append({
             "Account": acct,
@@ -1529,13 +1532,15 @@ with tab2:
     ]
     fig_norm = go.Figure()
     for idx, acct in enumerate(account_order):
-        acct_hist = fdf[fdf["Account"] == acct].groupby("Date")["Total Value"].sum().sort_index()
-        if len(acct_hist) < 2:
+        acct_df = fdf[fdf["Account"] == acct].groupby("Date").agg({"Total Value": "sum", "W/D": "sum"}).sort_index()
+        if len(acct_df) < 2:
             continue
-        base = acct_hist.iloc[0]
-        if base == 0:
+        # Subtract cumulative net W/D to isolate investment returns from deposits
+        acct_adj = acct_df["Total Value"] - acct_df["W/D"].cumsum()
+        base = acct_adj.iloc[0]
+        if base <= 0:
             continue
-        normalized = (acct_hist / base) * 100
+        normalized = (acct_adj / base) * 100
         fig_norm.add_trace(go.Scatter(
             x=normalized.index, y=normalized.values,
             name=acct, mode="lines",
