@@ -852,10 +852,8 @@ df = load_data()
 df = clean_data(df)
 if not validate_data(df):
     st.stop()
-df["_WD_neg"] = df["W/D"].clip(upper=0)
-df["Cum_WD"] = df.sort_values("Date").groupby("Account")["_WD_neg"].cumsum()
+df["Cum_WD"] = df.sort_values("Date").groupby("Account")["W/D"].cumsum().clip(upper=0)
 df["Adjusted Value"] = df["Total Value"] - df["Cum_WD"]
-df = df.drop(columns=["_WD_neg"])
 
 # --- TRANSACTION DATA ---
 tdf_raw = load_transactions()
