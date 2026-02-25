@@ -580,9 +580,11 @@ def section_label(text):
 
 def drawdown_chart(data, date_col="Date", value_col="Total Value", wd_col=None, height=None, show_legend=True, show_labels=False):
     data = data.sort_values(date_col).copy()
-    data["Peak"] = data[value_col].cummax()
     if wd_col and wd_col in data.columns:
-        data["Peak"] = data["Peak"] + data[wd_col]
+        inv_value = data[value_col] - data[wd_col]
+        data["Peak"] = inv_value.cummax() + data[wd_col]
+    else:
+        data["Peak"] = data[value_col].cummax()
 
     fig = go.Figure()
 
@@ -881,6 +883,7 @@ df = clean_data(df)
 if not validate_data(df):
     st.stop()
 df["Cum_WD"] = df.sort_values("Date").groupby("Account")["W/D"].cumsum().clip(upper=0)
+df["Cum_All_WD"] = df.sort_values("Date").groupby("Account")["W/D"].cumsum()
 df["Adjusted Value"] = df["Total Value"] - df["Cum_WD"]
 
 # --- TRANSACTION DATA ---
@@ -1381,8 +1384,8 @@ with tab1:
     section_label("Risk Monitor")
     
     # 1. Overall Portfolio Risk
-    daily_totals = fdf.groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum"}).reset_index()
-    fig_risk = drawdown_chart(daily_totals, wd_col="Cum_WD", height=300, show_labels=True)
+    daily_totals = fdf.groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum", "Cum_All_WD": "sum"}).reset_index()
+    fig_risk = drawdown_chart(daily_totals, wd_col="Cum_All_WD", height=300, show_labels=True)
     add_annotation_markers(fig_risk, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Total Portfolio</div>', unsafe_allow_html=True)
     st.plotly_chart(fig_risk, use_container_width=True, config=CHART_CONFIG, key="ov_risk")
@@ -1393,20 +1396,20 @@ with tab1:
     # We stack them to keep the "same size" (Full Resolution) as requested
     
     # GROWTH RISK
-    daily_growth = fdf[fdf["Bucket"] == "Growth"].groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum"}).reset_index()
+    daily_growth = fdf[fdf["Bucket"] == "Growth"].groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum", "Cum_All_WD": "sum"}).reset_index()
     if not daily_growth.empty:
         st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Growth Bucket</div>', unsafe_allow_html=True)
-        fig_growth = drawdown_chart(daily_growth, wd_col="Cum_WD", height=300, show_labels=True)
+        fig_growth = drawdown_chart(daily_growth, wd_col="Cum_All_WD", height=300, show_labels=True)
         # We can add a specific color override if you want Growth to look 'hotter', 
         # but for now we keep the uniform "HUD" style.
         st.plotly_chart(fig_growth, use_container_width=True, config=CHART_CONFIG, key="risk_growth")
         st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
     # STABLE RISK
-    daily_stable = fdf[fdf["Bucket"] == "Stable"].groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum"}).reset_index()
+    daily_stable = fdf[fdf["Bucket"] == "Stable"].groupby("Date").agg({"Total Value": "sum", "Cum_WD": "sum", "Cum_All_WD": "sum"}).reset_index()
     if not daily_stable.empty:
         st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Stable Bucket</div>', unsafe_allow_html=True)
-        fig_stable = drawdown_chart(daily_stable, wd_col="Cum_WD", height=300, show_labels=True)
+        fig_stable = drawdown_chart(daily_stable, wd_col="Cum_All_WD", height=300, show_labels=True)
         st.plotly_chart(fig_stable, use_container_width=True, config=CHART_CONFIG, key="risk_stable")
 
     # ── Monthly Returns Heatmap ──

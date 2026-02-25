@@ -1,0 +1,10 @@
+[
+  {
+    "target": 6000000,
+    "label": "Fortress Goal"
+  },
+  {
+    "target": 5000000,
+    "label": "Baseline"
+  }
+]
