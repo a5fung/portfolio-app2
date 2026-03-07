@@ -1176,13 +1176,15 @@ for goal in st.session_state.goals:
 
     # CAGR-based projection
     g_projected = ""
-    if len(dates_sorted) >= 2 and total_value < g_target:
-        first_date = dates_sorted[0]
-        last_date = dates_sorted[-1]
-        first_val = fdf[fdf["Date"] == first_date]["Total Value"].sum()
-        if first_val > 0 and total_value > first_val:
+    if total_value < g_target:
+        _ytd_goal_start = pd.Timestamp(datetime.now().year, 1, 1)
+        _ytd_goal_df = df[df["Date"] >= _ytd_goal_start]
+        if not _ytd_goal_df.empty:
+            first_date = _ytd_goal_df["Date"].min()
+            last_date = _ytd_goal_df["Date"].max()
+            first_val = _ytd_goal_df[_ytd_goal_df["Date"] == first_date]["Total Value"].sum()
             days_elapsed = (pd.Timestamp(last_date) - pd.Timestamp(first_date)).days
-            if days_elapsed > 30:
+            if first_val > 0 and total_value > first_val and days_elapsed > 30:
                 cagr = (total_value / first_val) ** (365.25 / days_elapsed) - 1
                 if cagr > 0:
                     years_to_goal = math.log(g_target / total_value) / math.log(1 + cagr)
