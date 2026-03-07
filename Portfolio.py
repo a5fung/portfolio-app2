@@ -1220,7 +1220,9 @@ for goal in st.session_state.goals:
 # 1. Calculate Overall Portfolio Drawdown (YTD scope)
 _ytd_start = pd.Timestamp(datetime.now().year, 1, 1)
 _ytd_df = df[df["Date"] >= _ytd_start]
-_all_time_totals = _ytd_df.groupby("Date")["Adjusted Value"].sum().sort_index()
+_ytd_tv = _ytd_df.groupby("Date")["Total Value"].sum().sort_index()
+_ytd_wd = _ytd_df.groupby("Date")["W/D"].sum().cumsum()
+_all_time_totals = (_ytd_tv - _ytd_wd).sort_index()
 if not _all_time_totals.empty:
     _peak = _all_time_totals.cummax().iloc[-1]
     _curr = _all_time_totals.iloc[-1]
@@ -1237,8 +1239,12 @@ if not _all_time_totals.empty:
     status_items = []
 
     for acct in account_order:
-        # Get account history
-        a_hist = _ytd_df[_ytd_df["Account"] == acct].groupby("Date")["Adjusted Value"].sum().sort_index()
+        # Get account history — aggregate TV and W/D separately to avoid double-counting
+        # when multiple buckets exist per account per date
+        _acct_data = _ytd_df[_ytd_df["Account"] == acct]
+        a_tv = _acct_data.groupby("Date")["Total Value"].sum().sort_index()
+        a_wd = _acct_data.groupby("Date")["W/D"].sum().cumsum()
+        a_hist = (a_tv - a_wd).sort_index()
         if a_hist.empty: continue
         
         a_peak = a_hist.cummax().iloc[-1]
