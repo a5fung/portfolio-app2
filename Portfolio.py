@@ -1271,10 +1271,10 @@ if not _all_time_totals.empty:
             s_opacity = "1.0"
             s_text = _mask(f"-{a_dd:.1f}%", "pct")
         else:
-            s_color = C["text_dim"]
-            s_bg = "transparent"
-            s_border = C["border"]
-            s_opacity = "0.5"
+            s_color = C["text_sec"]
+            s_bg = _hex_to_rgba(C["text_muted"], 0.1)
+            s_border = C["text_muted"]
+            s_opacity = "1.0"
             s_text = _mask(f"-{a_dd:.1f}%", "pct")
 
         # Render
