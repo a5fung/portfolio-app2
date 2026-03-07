@@ -1157,8 +1157,8 @@ st.markdown(f"""
         <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">{_mask(f"${total_margin:,.0f}")}</div>
     </div>
     <div class="metric-item">
-        <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">NET DEPOSITS</div>
-        <div class="mono" style="font-size: 16px; color: {C["text_sec"]};">{_mask(f"${net_deposits:,.0f}")}</div>
+        <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">MARKET GAINS</div>
+        <div class="mono" style="font-size: 16px; color: {C["positive"] if market_returns >= 0 else C["negative"]};">{_mask(f"${market_returns:+,.0f}")}</div>
     </div>
     <div class="metric-item">
         <div style="font-size: 10px; color: {C["text_dim"]}; letter-spacing: 0.05em; margin-bottom: 2px;">ALPHA (vs SPY)</div>
@@ -1168,6 +1168,12 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Goal Tracker Progress Bars ──
+_goal_ytd_start = pd.Timestamp(datetime.now().year, 1, 1)
+_goal_ytd_df = df[df["Date"] >= _goal_ytd_start]
+_goal_ytd_first_date = _goal_ytd_df["Date"].min() if not _goal_ytd_df.empty else None
+_goal_ytd_first_val = _goal_ytd_df[_goal_ytd_df["Date"] == _goal_ytd_first_date]["Total Value"].sum() if _goal_ytd_first_date is not None else 0
+_goal_ytd_days = (pd.Timestamp(_goal_ytd_df["Date"].max()) - pd.Timestamp(_goal_ytd_first_date)).days if _goal_ytd_first_date is not None else 0
+
 for goal in st.session_state.goals:
     g_target = goal["target"]
     g_label = goal.get("label", f"${g_target:,.0f}")
@@ -1176,20 +1182,12 @@ for goal in st.session_state.goals:
 
     # CAGR-based projection
     g_projected = ""
-    if total_value < g_target:
-        _ytd_goal_start = pd.Timestamp(datetime.now().year, 1, 1)
-        _ytd_goal_df = df[df["Date"] >= _ytd_goal_start]
-        if not _ytd_goal_df.empty:
-            first_date = _ytd_goal_df["Date"].min()
-            last_date = _ytd_goal_df["Date"].max()
-            first_val = _ytd_goal_df[_ytd_goal_df["Date"] == first_date]["Total Value"].sum()
-            days_elapsed = (pd.Timestamp(last_date) - pd.Timestamp(first_date)).days
-            if first_val > 0 and total_value > first_val and days_elapsed > 30:
-                cagr = (total_value / first_val) ** (365.25 / days_elapsed) - 1
-                if cagr > 0:
-                    years_to_goal = math.log(g_target / total_value) / math.log(1 + cagr)
-                    proj_date = pd.Timestamp.now() + pd.DateOffset(years=int(years_to_goal), months=int((years_to_goal % 1) * 12))
-                    g_projected = proj_date.strftime("%b %Y")
+    if total_value < g_target and _goal_ytd_first_val > 0 and total_value > _goal_ytd_first_val and _goal_ytd_days > 30:
+        cagr = (total_value / _goal_ytd_first_val) ** (365.25 / _goal_ytd_days) - 1
+        if cagr > 0:
+            years_to_goal = math.log(g_target / total_value) / math.log(1 + cagr)
+            proj_date = pd.Timestamp.now() + pd.DateOffset(years=int(years_to_goal), months=int((years_to_goal % 1) * 12))
+            g_projected = proj_date.strftime("%b %Y")
 
     if g_pct >= 100:
         g_bar_color = C["positive"]
