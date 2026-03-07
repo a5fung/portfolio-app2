@@ -884,7 +884,7 @@ if not validate_data(df):
     st.stop()
 df["Cum_WD"] = df.sort_values("Date").groupby("Account")["W/D"].cumsum().clip(upper=0)
 df["Cum_All_WD"] = df.sort_values("Date").groupby("Account")["W/D"].cumsum()
-df["Adjusted Value"] = df["Total Value"] - df["Cum_WD"]
+df["Adjusted Value"] = df["Total Value"] - df["Cum_All_WD"]
 
 # --- TRANSACTION DATA ---
 tdf_raw = load_transactions()
