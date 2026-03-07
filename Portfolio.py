@@ -1352,9 +1352,9 @@ with tab1:
         section_label("YTD vs Benchmarks")
         ytd_portfolio = df[(df["Date"] >= ytd_start) & (df["Date"] <= ytd_end)]
         if not ytd_portfolio.empty:
-            port_daily = ytd_portfolio.groupby("Date")["Total Value"].sum().reset_index()
+            port_daily = ytd_portfolio.groupby("Date").agg({"Total Value": "sum", "Adjusted Value": "sum"}).reset_index()
             port_daily = port_daily.sort_values("Date")
-            port_daily["Portfolio"] = ((port_daily["Total Value"] / port_daily["Total Value"].iloc[0] - 1) * 100).round(2)
+            port_daily["Portfolio"] = ((port_daily["Adjusted Value"] / port_daily["Adjusted Value"].iloc[0] - 1) * 100).round(2)
 
             bench = benchmark_df_ytd.copy()
             bench["SPY_pct"] = ((bench["SPY"] / bench["SPY"].iloc[0] - 1) * 100).round(2)
@@ -1479,13 +1479,14 @@ with tab2:
     _last_date = fdf["Date"].max()
     _first_snap = fdf[fdf["Date"] == _first_date]
     _last_snap = fdf[fdf["Date"] == _last_date]
-    _total_dollar_change = _last_snap["Total Value"].sum() - _first_snap["Total Value"].sum()
+    _total_net_wd = fdf["W/D"].sum()
+    _total_dollar_change = _last_snap["Total Value"].sum() - _first_snap["Total Value"].sum() - _total_net_wd
 
     for acct in account_order:
         s_val = _first_snap.loc[_first_snap["Account"] == acct, "Total Value"].sum()
         e_val = _last_snap.loc[_last_snap["Account"] == acct, "Total Value"].sum()
         net_wd = fdf[fdf["Account"] == acct]["W/D"].sum()
-        d_change = e_val - s_val
+        d_change = e_val - s_val - net_wd  # market gains only, excludes deposits
         # Modified Dietz: assume cash flows land at period midpoint (0.5 weight)
         _md_denom = s_val + 0.5 * net_wd
         p_change = (e_val - s_val - net_wd) / _md_denom * 100 if _md_denom else 0
