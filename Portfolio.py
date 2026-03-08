@@ -1508,10 +1508,10 @@ with tab1:
             fillcolor=_hex_to_rgba("#4C9BE8", 0.06),
             hoverinfo="skip",
         ))
-        fig_lt = style_chart(fig_lt, height=220)
+        fig_lt = style_chart(fig_lt, height=260)
         fig_lt.update_xaxes(dtick="M12", tickformat="%Y")
         fig_lt.update_yaxes(showticklabels=False, showgrid=False)
-        fig_lt.update_layout(hovermode=False)
+        fig_lt.update_layout(hovermode=False, margin=dict(l=0, r=0, t=10, b=28))
         st.plotly_chart(fig_lt, use_container_width=True, config=CHART_CONFIG, key="lt_curve")
 
 
