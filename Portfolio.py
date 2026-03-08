@@ -753,6 +753,28 @@ def load_transactions():
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=DATA_CACHE_TTL)
+def load_longterm():
+    try:
+        url = st.secrets.get("longterm_sheet_url")
+        if not url:
+            return pd.DataFrame()
+        df = pd.read_csv(url)
+        df.columns = df.columns.str.strip()
+        val_col = next((c for c in df.columns if "value" in c.lower()), None)
+        date_col = next((c for c in df.columns if "date" in c.lower()), None)
+        if not val_col or not date_col:
+            return pd.DataFrame()
+        df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'[$,\s]', '', regex=True), errors='coerce').fillna(0)
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=[date_col]).sort_values(date_col)
+        lt = df.groupby(date_col)[val_col].sum().reset_index()
+        lt.columns = ["Date", "Total Value"]
+        return lt
+    except Exception:
+        return pd.DataFrame()
+
+
 def clean_transactions(tdf):
     """Clean and normalize transaction data from Tiller."""
     if tdf.empty:
@@ -889,6 +911,7 @@ df["Adjusted Value"] = df["Total Value"] - df["Cum_All_WD"]
 # --- TRANSACTION DATA ---
 tdf_raw = load_transactions()
 tdf = clean_transactions(tdf_raw)
+lt_df = load_longterm()
 
 # --- SESSION STATE ---
 if "quick_range" not in st.session_state:
@@ -1466,6 +1489,30 @@ with tab1:
         f'<tbody>{"".join(_rows_html)}</tbody></table>',
         unsafe_allow_html=True,
     )
+
+    # ── Long-Term Equity Curve ──
+    if not lt_df.empty:
+        st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+        section_label("Long-Term Equity Curve")
+        fig_lt = go.Figure()
+        y_min_lt = lt_df["Total Value"].min() * 0.97
+        fig_lt.add_trace(go.Scatter(
+            x=lt_df["Date"], y=[y_min_lt] * len(lt_df),
+            mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip",
+        ))
+        fig_lt.add_trace(go.Scatter(
+            x=lt_df["Date"], y=lt_df["Total Value"],
+            mode="lines",
+            line=dict(color=C["primary"], width=1.5),
+            fill="tonexty",
+            fillcolor=_hex_to_rgba(C["primary"], 0.06),
+            hoverinfo="skip",
+        ))
+        fig_lt = style_chart(fig_lt, height=220)
+        fig_lt.update_xaxes(dtick="M12", tickformat="%Y")
+        fig_lt.update_yaxes(showticklabels=False, showgrid=False)
+        fig_lt.update_layout(hovermode=False)
+        st.plotly_chart(fig_lt, use_container_width=True, config=CHART_CONFIG, key="lt_curve")
 
 
 # ═══════════════════════════════════════════
