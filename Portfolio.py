@@ -764,15 +764,15 @@ def load_longterm():
         val_col = next((c for c in df.columns if "value" in c.lower()), None)
         date_col = next((c for c in df.columns if "date" in c.lower()), None)
         if not val_col or not date_col:
-            return pd.DataFrame()
+            return pd.DataFrame({"_debug": [f"cols={list(df.columns)}"]})
         df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'[$,\s]', '', regex=True), errors='coerce').fillna(0)
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
         df = df.dropna(subset=[date_col]).sort_values(date_col)
         lt = df.groupby(date_col)[val_col].sum().reset_index()
         lt.columns = ["Date", "Total Value"]
         return lt
-    except Exception:
-        return pd.DataFrame()
+    except Exception as e:
+        return pd.DataFrame({"_debug": [str(e)]})
 
 
 def clean_transactions(tdf):
@@ -1491,7 +1491,11 @@ with tab1:
     )
 
     # ── Long-Term Equity Curve ──
-    if not lt_df.empty:
+    if "_debug" in lt_df.columns:
+        st.warning(f"Long-term sheet error: {lt_df['_debug'].iloc[0]}")
+    elif st.secrets.get("longterm_sheet_url") and lt_df.empty:
+        st.warning("Long-term sheet loaded 0 rows.")
+    if not lt_df.empty and "Total Value" in lt_df.columns:
         st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
         section_label("Long-Term Equity Curve")
         fig_lt = go.Figure()
