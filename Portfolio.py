@@ -1503,9 +1503,9 @@ with tab1:
         fig_lt.add_trace(go.Scatter(
             x=lt_df["Date"], y=lt_df["Total Value"],
             mode="lines",
-            line=dict(color=C["primary"], width=1.5),
+            line=dict(color="#4C9BE8", width=1.5),
             fill="tonexty",
-            fillcolor=_hex_to_rgba(C["primary"], 0.06),
+            fillcolor=_hex_to_rgba("#4C9BE8", 0.06),
             hoverinfo="skip",
         ))
         fig_lt = style_chart(fig_lt, height=220)
