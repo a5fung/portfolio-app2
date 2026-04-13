@@ -833,17 +833,21 @@ def clean_transactions(tdf):
         "GENERAL_MERCHANDISE_TOBACCO_AND_VAPE": "Tobacco",
         "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE": "Shopping",
     }
+    # Detect truly null categories before astype(str) — catches float NaN, pd.NA, None
+    # (Streamlit @st.cache_data can serialize via Arrow, changing NaN→pd.NA which str() gives "<NA>")
+    null_cat = tdf["Category"].isna()
     tdf["Category"] = tdf["Category"].astype(str)
     if "Category Hint" in tdf.columns:
-        mask = tdf["Category"].str.strip().isin(["", "nan", "NaN", "None"])
-        hints = tdf.loc[mask, "Category Hint"].astype(str)
+        mask = null_cat | tdf["Category"].str.strip().isin(["", "nan", "NaN", "None", "<NA>"])
+        # Fill null hints with "" so .str operations don't propagate NA
+        hints = tdf.loc[mask, "Category Hint"].fillna("").astype(str)
         # Try subcategory match first, else fall back to top-level
         subcats = hints.str.split(":").str[-1].str.strip()
         top_cats = hints.str.split(":").str[0].str.replace("_", " ").str.strip().str.title()
         resolved = subcats.map(SUBCATEGORY_MAP).fillna(top_cats)
         tdf.loc[mask, "Category"] = resolved
     tdf["Category"] = tdf["Category"].astype(str).str.strip().str.title()
-    tdf["Category"] = tdf["Category"].replace({"": "Uncategorized", "Nan": "Uncategorized"})
+    tdf["Category"] = tdf["Category"].replace({"": "Uncategorized", "Nan": "Uncategorized", "<Na>": "Uncategorized"})
     # Filter out transfers
     transfer_cats = {"Transfer", "Credit Card Payment", "Transfer Out", "Transfer In"}
     tdf = tdf[~tdf["Category"].isin(transfer_cats)]
