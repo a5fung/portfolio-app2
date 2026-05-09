@@ -73,6 +73,29 @@ st.markdown(
         padding: 10px 14px; border-radius: 4px; color: {C['text_sec']};
         font-size: 12px; margin-bottom: 16px;
     }}
+    .strat-card {{
+        background: {C['surface']}; border: 1px solid {C['border']};
+        border-radius: 8px; padding: 16px; height: 100%;
+    }}
+    .strat-name {{
+        color: {C['text']}; font-size: 14px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        padding-bottom: 8px; border-bottom: 1px solid {C['border']}; margin-bottom: 12px;
+    }}
+    .strat-net {{ color: {C['text_muted']}; font-size: 11px; text-transform: uppercase; }}
+    .strat-net-val {{ font-size: 26px; font-weight: 700; margin-top: 2px; margin-bottom: 12px; }}
+    .strat-row {{ display: flex; justify-content: space-between; font-size: 11px;
+                  color: {C['text_muted']}; margin-top: 2px; }}
+    .strat-row-val {{ color: {C['text_sec']}; font-weight: 500; }}
+    .winrate-track {{
+        background: {C['surface2']}; height: 8px; border-radius: 4px;
+        position: relative; overflow: hidden; margin: 6px 0 12px 0;
+    }}
+    .winrate-fill {{ height: 100%; border-radius: 4px; transition: width 0.3s; }}
+    .strat-section-label {{
+        color: {C['text_muted']}; font-size: 10px;
+        text-transform: uppercase; letter-spacing: 0.4px; margin-top: 12px;
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -327,8 +350,92 @@ stats = setup_stats(df)
 if stats.empty:
     st.info("No closed trades in the selected period.")
 else:
-    # Format for display
-    display = stats.copy()
+    # ── Scorecards (one per strategy, max 4 across) ────────────────────────
+    n_strats = len(stats)
+    card_cols = st.columns(min(n_strats, 4) or 1)
+    for idx, row in stats.iterrows():
+        strat = row["strategy"]
+        strat_trades = closed_df[closed_df["entry_strategy"] == strat]
+        net_pnl = strat_trades["total_pnl"].sum()
+        win_rate_pct = row["win_rate"] * 100
+        wr_color = (
+            C["positive"] if win_rate_pct >= 35
+            else (C["warning"] if win_rate_pct >= 25 else C["negative"])
+        )
+        net_color = C["positive"] if net_pnl >= 0 else C["negative"]
+
+        with card_cols[idx % len(card_cols)]:
+            # Card header + net P&L
+            st.markdown(
+                f"""<div class="strat-card">
+                <div class="strat-name">{strat}</div>
+                <div class="strat-net">Net realized P&L</div>
+                <div class="strat-net-val" style="color:{net_color};">${net_pnl:+,.0f}</div>
+                <div class="strat-row"><span>Win rate</span><span class="strat-row-val">{win_rate_pct:.1f}%</span></div>
+                <div class="winrate-track">
+                  <div class="winrate-fill" style="width:{min(win_rate_pct, 100):.1f}%; background:{wr_color};"></div>
+                </div>
+                <div class="strat-section-label">R-multiple distribution</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            # Mini R-distribution histogram inside the card
+            r_vals = strat_trades["r_multiple"].dropna()
+            if len(r_vals):
+                wins_r = r_vals[r_vals > 0]
+                losses_r = r_vals[r_vals <= 0]
+                fig_r = go.Figure()
+                fig_r.add_trace(go.Histogram(
+                    x=losses_r, marker_color=C["negative"],
+                    xbins=dict(start=-3, end=12, size=1),
+                    opacity=0.85, showlegend=False,
+                    hovertemplate="R %{x}<br>%{y} trades<extra></extra>",
+                ))
+                fig_r.add_trace(go.Histogram(
+                    x=wins_r, marker_color=C["positive"],
+                    xbins=dict(start=-3, end=12, size=1),
+                    opacity=0.85, showlegend=False,
+                    hovertemplate="R %{x}<br>%{y} trades<extra></extra>",
+                ))
+                fig_r.update_layout(
+                    height=110, barmode="stack",
+                    paper_bgcolor=C["bg"], plot_bgcolor=C["bg"],
+                    margin=dict(l=0, r=0, t=0, b=20),
+                    xaxis=dict(
+                        showgrid=False, zeroline=True, fixedrange=True,
+                        zerolinecolor=C["text_dim"], zerolinewidth=1,
+                        tickfont=dict(color=C["text_muted"], size=9),
+                        tickvals=[-2, 0, 2, 4, 6, 8, 10],
+                    ),
+                    yaxis=dict(
+                        showgrid=False, zeroline=False, fixedrange=True,
+                        showticklabels=False,
+                    ),
+                )
+                st.plotly_chart(fig_r, use_container_width=True, config=CHART_CONFIG)
+            # Bottom stats row
+            pf = row["profit_factor"]
+            exp_v = row["expectancy"]
+            avg_hold = row["avg_hold_days"]
+            n_t = int(row["n_trades"])
+            st.markdown(
+                f"""<div class="strat-row" style="margin-top:6px;">
+                <span>Profit factor</span><span class="strat-row-val">{pf:.2f}</span></div>
+                <div class="strat-row">
+                <span>Expectancy</span><span class="strat-row-val">${exp_v:+,.0f}</span></div>
+                <div class="strat-row">
+                <span>Trades · avg hold</span><span class="strat-row-val">{n_t} · {avg_hold:.1f}d</span></div>
+                <div class="strat-row">
+                <span>Avg R (win/loss)</span><span class="strat-row-val">{row['avg_r_win']:+.2f} / {row['avg_r_loss']:+.2f}</span></div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown(" ")
+
+    # ── Precise reference table (below scorecards) ─────────────────────────
+    with st.expander("Precise reference table"):
+        display = stats.copy()
     display["win_rate"] = display["win_rate"].apply(lambda x: f"{x*100:.1f}%")
     display["avg_r"] = display["avg_r"].apply(lambda x: f"{x:+.2f}R")
     display["avg_r_win"] = display["avg_r_win"].apply(lambda x: f"{x:+.2f}R")
