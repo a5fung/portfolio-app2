@@ -361,6 +361,220 @@ else:
         },
     )
 
+# ── Equity curve with drawdown shading ─────────────────────────────────────
+st.subheader("Equity curve")
+st.caption("Cumulative realized P&L · drawdown shaded · open trades excluded")
+
+if not closed_df.empty:
+    eq = closed_df.sort_values("closed_at")[["closed_at", "total_pnl"]].copy()
+    eq["cum_pnl"] = eq["total_pnl"].cumsum()
+    eq["peak"] = eq["cum_pnl"].cummax()
+    eq["drawdown"] = eq["cum_pnl"] - eq["peak"]
+
+    fig_eq = go.Figure()
+    # Drawdown band — peak line and current cum line; fill between to show DD
+    fig_eq.add_trace(go.Scatter(
+        x=eq["closed_at"], y=eq["peak"],
+        mode="lines", line=dict(width=0),
+        showlegend=False, hoverinfo="skip", name="peak",
+    ))
+    fig_eq.add_trace(go.Scatter(
+        x=eq["closed_at"], y=eq["cum_pnl"],
+        mode="lines", line=dict(width=0),
+        fill="tonexty",
+        fillcolor=C["negative_dim"] if st.session_state.dark_mode else "rgba(220,38,38,0.18)",
+        showlegend=False, hoverinfo="skip", name="drawdown_fill",
+    ))
+    # Main equity line on top
+    fig_eq.add_trace(go.Scatter(
+        x=eq["closed_at"], y=eq["cum_pnl"],
+        mode="lines",
+        line=dict(color=C["positive"], width=2.5),
+        name="Cumulative P&L",
+        hovertemplate="%{x|%b %d}<br>$%{y:,.0f}<extra></extra>",
+    ))
+    # Zero line
+    fig_eq.add_hline(y=0, line_dash="dot", line_color=C["text_dim"], line_width=1)
+
+    fig_eq.update_layout(
+        height=320,
+        paper_bgcolor=C["bg"],
+        plot_bgcolor=C["bg"],
+        margin=dict(l=10, r=10, t=10, b=30),
+        xaxis=dict(
+            showgrid=False, zeroline=False, fixedrange=True,
+            tickfont=dict(color=C["text_muted"], size=10),
+        ),
+        yaxis=dict(
+            showgrid=True, gridcolor=C["grid"], zeroline=False, fixedrange=True,
+            tickprefix="$", tickformat=",",
+            tickfont=dict(color=C["text_muted"], size=10),
+        ),
+        showlegend=False,
+    )
+    st.plotly_chart(fig_eq, use_container_width=True, config=CHART_CONFIG)
+else:
+    st.info("No closed trades for equity curve.")
+
+# ── Best / worst trades ────────────────────────────────────────────────────
+st.subheader("Best & worst trades")
+st.caption("Top-10 by realized P&L (left) and by R-multiple (right) · regime + catalyst context")
+
+if not closed_df.empty:
+    bw_cols = ["ticker", "entry_strategy", "alert_date", "regime",
+               "catalyst_quality", "gap_pct", "entry_price", "exit_price",
+               "r_multiple", "total_pnl", "holding_days"]
+
+    def _format_bw(d: pd.DataFrame) -> pd.DataFrame:
+        out = d[bw_cols].copy()
+        out["alert_date"] = out["alert_date"].apply(lambda x: x.strftime("%b %d") if hasattr(x, "strftime") else str(x))
+        out["gap_pct"] = out["gap_pct"].apply(lambda v: f"{v:+.1f}%" if pd.notna(v) else "—")
+        out["entry_price"] = out["entry_price"].apply(lambda v: f"${v:.2f}")
+        out["exit_price"] = out["exit_price"].apply(lambda v: f"${v:.2f}" if pd.notna(v) else "—")
+        out["r_multiple"] = out["r_multiple"].apply(lambda v: f"{v:+.2f}R")
+        out["total_pnl"] = out["total_pnl"].apply(lambda v: f"${v:+,.0f}")
+        out["holding_days"] = out["holding_days"].apply(lambda v: f"{int(v)}d" if pd.notna(v) else "—")
+        return out.rename(columns={
+            "ticker": "Ticker", "entry_strategy": "Strategy", "alert_date": "Date",
+            "regime": "Regime", "catalyst_quality": "Catalyst", "gap_pct": "Gap",
+            "entry_price": "Entry", "exit_price": "Exit", "r_multiple": "R",
+            "total_pnl": "P&L", "holding_days": "Hold",
+        })
+
+    bc, wc = st.columns(2)
+    with bc:
+        st.markdown(f"**Top 10 by P&L**")
+        top_pnl = closed_df.nlargest(10, "total_pnl")
+        st.dataframe(_format_bw(top_pnl), use_container_width=True, hide_index=True, height=380)
+    with wc:
+        st.markdown(f"**Bottom 10 by P&L**")
+        bot_pnl = closed_df.nsmallest(10, "total_pnl")
+        st.dataframe(_format_bw(bot_pnl), use_container_width=True, hide_index=True, height=380)
+
+    bc2, wc2 = st.columns(2)
+    with bc2:
+        st.markdown(f"**Top 10 by R-multiple**")
+        top_r = closed_df.nlargest(10, "r_multiple")
+        st.dataframe(_format_bw(top_r), use_container_width=True, hide_index=True, height=380)
+    with wc2:
+        st.markdown(f"**Bottom 10 by R-multiple**")
+        bot_r = closed_df.nsmallest(10, "r_multiple")
+        st.dataframe(_format_bw(bot_r), use_container_width=True, hide_index=True, height=380)
+else:
+    st.info("No closed trades for best/worst panel.")
+
+# ── Holding-period histogram ───────────────────────────────────────────────
+st.subheader("Holding period")
+st.caption("Distribution of (closed_at − filled_at) days · split by win/loss")
+
+if not closed_df.empty and closed_df["holding_days"].notna().any():
+    holds = closed_df[closed_df["holding_days"].notna()].copy()
+    wins_h = holds[holds["total_pnl"] > 0]["holding_days"]
+    losses_h = holds[holds["total_pnl"] <= 0]["holding_days"]
+
+    fig_h = go.Figure()
+    fig_h.add_trace(go.Histogram(
+        x=losses_h, name="Losses",
+        marker_color=C["negative"],
+        xbins=dict(start=0, end=25, size=1),
+        opacity=0.85,
+    ))
+    fig_h.add_trace(go.Histogram(
+        x=wins_h, name="Winners",
+        marker_color=C["positive"],
+        xbins=dict(start=0, end=25, size=1),
+        opacity=0.85,
+    ))
+    fig_h.update_layout(
+        height=280,
+        barmode="stack",
+        paper_bgcolor=C["bg"],
+        plot_bgcolor=C["bg"],
+        margin=dict(l=10, r=10, t=10, b=30),
+        xaxis=dict(
+            title=dict(text="Holding days", font=dict(color=C["text_muted"], size=11)),
+            showgrid=False, zeroline=False, fixedrange=True,
+            tickfont=dict(color=C["text_muted"], size=10),
+        ),
+        yaxis=dict(
+            title=dict(text="Trade count", font=dict(color=C["text_muted"], size=11)),
+            showgrid=True, gridcolor=C["grid"], zeroline=False, fixedrange=True,
+            tickfont=dict(color=C["text_muted"], size=10),
+        ),
+        legend=dict(
+            orientation="h", yanchor="top", y=1.05, xanchor="right", x=1,
+            font=dict(color=C["text_muted"], size=11),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+    )
+    st.plotly_chart(fig_h, use_container_width=True, config=CHART_CONFIG)
+
+    # Median lines text
+    med_w = wins_h.median() if len(wins_h) else None
+    med_l = losses_h.median() if len(losses_h) else None
+    cap_parts = []
+    if med_w is not None:
+        cap_parts.append(f"Winner median **{med_w:.0f}d**")
+    if med_l is not None:
+        cap_parts.append(f"Loser median **{med_l:.0f}d**")
+    if cap_parts:
+        st.markdown(" · ".join(cap_parts))
+else:
+    st.info("No closed trades with holding-period data.")
+
+# ── Trade drill-down ───────────────────────────────────────────────────────
+with st.expander(f"Trade-level drill-down ({len(df)} trades · click to expand)"):
+    drill = df.copy()
+    # Optional ticker filter
+    tickers_in_period = sorted(drill["ticker"].unique())
+    selected = st.multiselect(
+        "Filter by ticker (empty = all)",
+        tickers_in_period, default=[],
+    )
+    if selected:
+        drill = drill[drill["ticker"].isin(selected)]
+
+    drill_cols = [
+        "ticker", "entry_strategy", "alert_date", "filled_at", "closed_at",
+        "status", "entry_price", "stop_price", "exit_price", "entry_shares",
+        "regime", "catalyst_quality", "gap_pct", "ep_score",
+        "r_multiple", "total_pnl", "holding_days",
+    ]
+    drill_disp = drill[drill_cols].copy()
+    drill_disp["alert_date"] = drill_disp["alert_date"].apply(
+        lambda x: x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else str(x))
+    drill_disp["filled_at"] = drill_disp["filled_at"].apply(
+        lambda x: x.strftime("%m-%d %H:%M") if pd.notna(x) and hasattr(x, "strftime") else "—")
+    drill_disp["closed_at"] = drill_disp["closed_at"].apply(
+        lambda x: x.strftime("%m-%d %H:%M") if pd.notna(x) and hasattr(x, "strftime") else "—")
+    for col in ("entry_price", "stop_price", "exit_price"):
+        drill_disp[col] = drill_disp[col].apply(
+            lambda v: f"${v:.2f}" if pd.notna(v) else "—")
+    drill_disp["gap_pct"] = drill_disp["gap_pct"].apply(
+        lambda v: f"{v:+.1f}%" if pd.notna(v) else "—")
+    drill_disp["ep_score"] = drill_disp["ep_score"].apply(
+        lambda v: f"{v:.0f}" if pd.notna(v) else "—")
+    drill_disp["r_multiple"] = drill_disp["r_multiple"].apply(
+        lambda v: f"{v:+.2f}" if pd.notna(v) else "—")
+    drill_disp["total_pnl"] = drill_disp["total_pnl"].apply(
+        lambda v: f"${v:+,.0f}" if pd.notna(v) else "—")
+    drill_disp["holding_days"] = drill_disp["holding_days"].apply(
+        lambda v: f"{int(v)}" if pd.notna(v) else "—")
+
+    drill_disp = drill_disp.rename(columns={
+        "ticker": "Ticker", "entry_strategy": "Strategy", "alert_date": "Date",
+        "filled_at": "Filled", "closed_at": "Closed", "status": "Status",
+        "entry_price": "Entry", "stop_price": "Stop", "exit_price": "Exit",
+        "entry_shares": "Sh", "regime": "Regime", "catalyst_quality": "Catalyst",
+        "gap_pct": "Gap", "ep_score": "Score", "r_multiple": "R",
+        "total_pnl": "P&L", "holding_days": "Hold",
+    })
+
+    st.dataframe(
+        drill_disp.sort_values("Date", ascending=False),
+        use_container_width=True, hide_index=True, height=500,
+    )
+
 # ── Footer ──────────────────────────────────────────────────────────────────
 st.markdown(" ")
 st.caption(
