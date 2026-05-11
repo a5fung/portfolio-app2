@@ -471,12 +471,13 @@ else:
 # ── Worst / best price excursion ───────────────────────────────────────────
 st.subheader("Worst-vs-you / best-in-favor")
 st.caption(
-    "How far each trade went underwater vs how high it ran, expressed in R "
-    "(risk-multiples). Top-right quadrant (worst ≈ 0, best high) = clean "
-    "entries that ran far — the ideal. Bottom-left (worst near -1R, best low) "
-    "= trades that dragged to stop. Dashed diagonal = symmetric volatility "
-    "(|worst| = |best|); dots above the diagonal had more upside than "
-    "downside during the hold."
+    "How far each trade went underwater (X, ≤ 0) vs how high it ran (Y, ≥ 0), "
+    "expressed in R-multiples. Regions to watch: **upper-right** (X ≈ 0, "
+    "high Y) = clean entries that ran far — the ideal. **Lower-left** "
+    "(X ≈ -1R, Y ≈ 0) = drilled to stop with no upside. **Upper-left** "
+    "(X very negative, Y high) = wide-volatility trades that ran despite "
+    "drawdown. Dashed diagonal = |worst| = |best|; dots above had more "
+    "upside than downside during the hold."
 )
 
 if "worst_r" in closed_df.columns:
