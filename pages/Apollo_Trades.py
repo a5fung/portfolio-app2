@@ -472,9 +472,9 @@ else:
 st.subheader("Worst-vs-you / best-in-favor")
 st.caption(
     "Per-trade range during hold (R-multiples). X = how far underwater · "
-    "Y = how high it ran. Dashed diagonal = equal magnitude both ways; "
-    "dots above had asymmetric upside (good), dots below had asymmetric "
-    "downside (bad). Color = winner / loser. Shape = strategy."
+    "Y = how high it ran. Dashed diagonal = 3:1 reward-to-risk reference; "
+    "dots above the line had peak ≥ 3× drawdown during the hold (Pradeep "
+    "methodology target). Color = winner / loser. Shape = strategy."
 )
 
 if "worst_r" in closed_df.columns:
@@ -528,17 +528,11 @@ else:
                 ),
             ))
 
-        # y = x diagonal: equal drawdown and runup magnitude. Now lives
-        # entirely inside the visible first quadrant.
-        max_r = max(plot_df["best_r"].max(), plot_df["drawdown_r"].max(), 1.0) * 1.05
-        ex_fig.add_trace(go.Scatter(
-            x=[0, max_r], y=[0, max_r],
-            mode="lines",
-            line=dict(color=C["text_muted"], width=1, dash="dash"),
-            name="equal magnitude",
-            hoverinfo="skip",
-            showlegend=False,
-        ))
+        # Separate X and Y ranges — drawdown caps at ~1R typically,
+        # peak can run 15R+ on big winners. Asymmetric scales prevent
+        # the X-axis from stretching to peak-magnitude.
+        x_max = max(plot_df["drawdown_r"].max(), 1.2) * 1.15
+        y_max = max(plot_df["best_r"].max(), 3.0) * 1.05
 
         # Vertical reference at drawdown=1R (typical stop touch).
         ex_fig.add_vline(
@@ -549,10 +543,31 @@ else:
             annotation_font=dict(color=C["text_muted"], size=10),
         )
 
-        # Region annotations directly on the chart so the operator
-        # doesn't have to mentally map quadrants to meaning.
+        # Reward:risk 3:1 reference (y = 3x) — Pradeep methodology
+        # target. Above this line = peak was 3x+ the drawdown during
+        # hold; a desirable shape. Clipped to visible X range.
+        ex_fig.add_trace(go.Scatter(
+            x=[0, x_max], y=[0, 3 * x_max],
+            mode="lines",
+            line=dict(color=C["text_muted"], width=1, dash="dash"),
+            name="3:1 R:R",
+            hoverinfo="skip",
+            showlegend=False,
+        ))
         ex_fig.add_annotation(
-            x=0.05, y=max_r * 0.92, xref="x", yref="y",
+            x=x_max * 0.95, y=min(3 * x_max * 0.95, y_max * 0.95),
+            xref="x", yref="y",
+            text="3:1 R:R",
+            showarrow=False,
+            font=dict(color=C["text_muted"], size=10),
+            align="right",
+        )
+
+        # Region annotations directly on the chart so the operator
+        # doesn't have to mentally map regions to meaning. Both
+        # positioned WITHIN the visible data range now.
+        ex_fig.add_annotation(
+            x=x_max * 0.05, y=y_max * 0.93, xref="x", yref="y",
             text="◆ <b>IDEAL</b><br>low drawdown<br>+ ran far",
             showarrow=False,
             font=dict(color=C["positive"], size=10),
@@ -560,7 +575,7 @@ else:
             bgcolor="rgba(0,0,0,0)",
         )
         ex_fig.add_annotation(
-            x=max_r * 0.85, y=0.2, xref="x", yref="y",
+            x=x_max * 0.78, y=y_max * 0.08, xref="x", yref="y",
             text="◆ <b>STOPPED</b><br>drilled +<br>no upside",
             showarrow=False,
             font=dict(color=C["negative"], size=10),
@@ -575,12 +590,12 @@ else:
             xaxis=dict(
                 title="Drawdown during hold (R, magnitude)",
                 gridcolor=C["grid"], zerolinecolor=C["text_dim"],
-                range=[-0.05, max_r],
+                range=[-0.05, x_max],
             ),
             yaxis=dict(
                 title="Peak during hold (R, in your favor)",
                 gridcolor=C["grid"], zerolinecolor=C["text_dim"],
-                range=[-0.2, max_r],
+                range=[-0.2, y_max],
             ),
             legend=dict(
                 orientation="h", yanchor="bottom", y=1.02,
