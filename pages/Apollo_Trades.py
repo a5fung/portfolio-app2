@@ -23,6 +23,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from apollo_data import daily_pnl, excursion_stats, load_trades, setup_stats
+from apollo_digest import generate_digest
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Apollo Trades", layout="wide", page_icon="◆")
@@ -154,6 +155,92 @@ df = df_all[df_all["alert_date"] >= cutoff].copy()
 if df.empty:
     st.warning(f"No trades in the last {days_back} days. Adjust the period filter.")
     st.stop()
+
+# ── AI digest (top-of-page executive summary) ───────────────────────────────
+def _get_anthropic_key() -> str | None:
+    """Pull API key from Streamlit secrets; None if unavailable."""
+    try:
+        return st.secrets.get("ANTHROPIC_API_KEY")
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_digest(
+    fingerprint: tuple, period_label: str, account_mode: str,
+) -> dict:
+    """Generate digest with hourly cache. Fingerprint = (n_trades, n_closed,
+    total_pnl_rounded) — invalidates when trade data materially changes."""
+    closed_for_stats = df[df["status"].isin(["closed", "stopped"])].copy()
+    setup_df = setup_stats(df)
+    excursion_df = excursion_stats(df)
+    return generate_digest(
+        df=df,
+        setup_stats_df=setup_df,
+        excursion_stats_df=excursion_df,
+        period_label=period_label,
+        account_mode=account_mode,
+        api_key=_get_anthropic_key(),
+    )
+
+
+# Fingerprint inputs that should invalidate the cache when they change.
+_closed_for_fp = df[df["status"].isin(["closed", "stopped"])]
+_digest_fingerprint = (
+    len(df),
+    len(_closed_for_fp),
+    round(float(_closed_for_fp["total_pnl"].sum()), 0) if len(_closed_for_fp) else 0,
+)
+
+digest_col1, digest_col2 = st.columns([10, 1])
+with digest_col1:
+    st.markdown(
+        f"<div style='display:flex; align-items:center; gap:0.5em; margin-top:0.5em;'>"
+        f"<span style='font-size:1.1em; font-weight:600; color:{C['text']};'>"
+        f"◆ Pulse</span>"
+        f"<span style='color:{C['text_dim']}; font-size:0.85em;'>"
+        f"AI-generated summary · cached hourly</span></div>",
+        unsafe_allow_html=True,
+    )
+with digest_col2:
+    if st.button("↻", help="Refresh digest now (clears hourly cache)", key="digest_refresh"):
+        _cached_digest.clear()
+        st.rerun()
+
+try:
+    _digest = _cached_digest(_digest_fingerprint, period_label, account_mode)
+    _bullets = _digest.get("bullets", [])
+    _source = _digest.get("source", "rule_based")
+except Exception as _e:
+    _bullets = [f"Digest generation failed: {_e}"]
+    _source = "error"
+
+if _bullets:
+    _source_chip = {
+        "llm": ("AI", C["primary"]),
+        "rule_based": ("rules", C["text_muted"]),
+        "error": ("error", C["negative"]),
+    }.get(_source, ("?", C["text_muted"]))
+    _bullet_html = "".join(
+        f"<li style='margin-bottom:0.4em; line-height:1.5;'>{b}</li>"
+        for b in _bullets
+    )
+    st.markdown(
+        f"<div style='"
+        f"background:{C['surface']}; "
+        f"border:1px solid {C['border']}; "
+        f"border-left:3px solid {_source_chip[1]}; "
+        f"padding:1em 1.25em; "
+        f"border-radius:6px; "
+        f"margin:0.4em 0 1.2em 0; "
+        f"color:{C['text_sec']}; "
+        f"font-size:0.92em;'>"
+        f"<ul style='margin:0; padding-left:1.2em;'>{_bullet_html}</ul>"
+        f"<div style='margin-top:0.7em; font-size:0.75em; color:{C['text_dim']};'>"
+        f"source: {_source_chip[0]}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 # ── KPI strip ───────────────────────────────────────────────────────────────
 closed_df = df[df["status"].isin(["closed", "stopped"])].copy()
