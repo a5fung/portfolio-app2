@@ -472,8 +472,11 @@ else:
 st.subheader("Worst-vs-you / best-in-favor")
 st.caption(
     "How far each trade went underwater vs how high it ran, expressed in R "
-    "(risk-multiples). Bottom-left quadrant = clean entries that ran far. "
-    "Top-right = drag near stop before running. Y=X diagonal = exited at peak."
+    "(risk-multiples). Top-right quadrant (worst ≈ 0, best high) = clean "
+    "entries that ran far — the ideal. Bottom-left (worst near -1R, best low) "
+    "= trades that dragged to stop. Dashed diagonal = symmetric volatility "
+    "(|worst| = |best|); dots above the diagonal had more upside than "
+    "downside during the hold."
 )
 
 if "worst_r" in closed_df.columns:
@@ -519,14 +522,17 @@ else:
                     "Date: %{customdata[2]}<extra></extra>"
                 ),
             ))
-        # Diagonal y=x reference (only positive quadrant: trades that
-        # reached peak above zero R)
+        # Symmetric-volatility diagonal: y = -x. Above the line means
+        # the trade ran more in your favor than against you during the
+        # hold; below = went against more than it ran. Since X ≤ 0 and
+        # Y ≥ 0, the line spans worst_min .. 0 on the X-axis.
         max_r = max(valid["best_r"].max(), 1.0) * 1.05
+        x_min = min(valid["worst_r"].min(), -1.2) * 1.05
         ex_fig.add_trace(go.Scatter(
-            x=[0, max_r], y=[0, max_r],
+            x=[x_min, 0], y=[-x_min, 0],
             mode="lines",
-            line=dict(color=C["text_dim"], width=1, dash="dot"),
-            name="y=x (exit at peak)",
+            line=dict(color=C["text_muted"], width=1, dash="dash"),
+            name="|worst| = |best|",
             hoverinfo="skip",
             showlegend=False,
         ))
