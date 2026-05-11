@@ -15,27 +15,33 @@ Toggle via env var:
 
 Schema (matches mi_live_trades joined with mi_ep_alerts + mi_market_regime):
 
-    ticker            TEXT
-    entry_strategy    TEXT       'magna53' | '9m_day2'
-    alert_date        DATE
-    filled_at         TIMESTAMP
-    closed_at         TIMESTAMP  null if still open
-    status            TEXT       'closed' | 'stopped' | 'open'
-    entry_price       FLOAT
-    stop_price        FLOAT
-    exit_price        FLOAT      null if still open
-    entry_shares      INT
-    total_pnl         FLOAT      0 if still open
-    regime            TEXT       'Bull' | 'Choppy' | 'Correcting' | 'Crisis'
-    gap_pct           FLOAT
-    catalyst_quality  TEXT       'game_changer' | 'strong' | 'routine'
-    ep_score          FLOAT      0-115 (post-uncap)
-    account_mode      TEXT       'live' | 'paper'
+    ticker             TEXT
+    entry_strategy     TEXT       'magna53' | '9m_day2'
+    alert_date         DATE
+    filled_at          TIMESTAMP
+    closed_at          TIMESTAMP  null if still open
+    status             TEXT       'closed' | 'stopped' | 'open'
+    entry_price        FLOAT
+    stop_price         FLOAT
+    exit_price         FLOAT      null if still open
+    entry_shares       INT
+    total_pnl          FLOAT      0 if still open
+    regime             TEXT       'Bull' | 'Choppy' | 'Correcting' | 'Crisis'
+    gap_pct            FLOAT
+    catalyst_quality   TEXT       'game_changer' | 'strong' | 'routine'
+    ep_score           FLOAT      0-115 (post-uncap)
+    account_mode       TEXT       'live' | 'paper'
+    lowest_price_seen  FLOAT      Worst price during trade's open life
+    highest_price_seen FLOAT      Best price during trade's open life
 
 Derived (computed in this module, never queried):
     r_multiple        FLOAT      (exit - entry) / (entry - stop)
     holding_days      INT        (closed_at - filled_at).days
     pnl_per_share     FLOAT      total_pnl / entry_shares
+    worst_r           FLOAT      (lowest_price - entry) / risk_per_share  ≤ 0
+    best_r            FLOAT      (highest_price - entry) / risk_per_share  ≥ 0
+    capture_pct       FLOAT      r_multiple / best_r (open trades: NaN; best_r=0: NaN)
+                                 "how much of the available upside did we capture?"
 """
 from __future__ import annotations
 
@@ -118,6 +124,27 @@ def _generate_one_trade(
     exit_price = round(entry_price + r * risk_per_share, 2)
     total_pnl = round((exit_price - entry_price) * entry_shares, 2)
 
+    # Worst-price / best-price during open life — methodology-realistic
+    # shapes for the excursion analytics panel.
+    if is_winner:
+        # Winners often pull back slightly before running (worst-r small negative).
+        worst_r_sim = rng.uniform(-0.7, 0.0)
+        # Best-r ≥ actual r. ~30% of winners exit too early (best > r * 1.3);
+        # ~70% exit near peak (best ~ r * 1.0–1.2).
+        if rng.random() < 0.30:
+            best_r_sim = max(r, r * rng.uniform(1.3, 2.2))
+        else:
+            best_r_sim = max(r, r * rng.uniform(1.0, 1.2))
+    else:
+        # Losers usually run straight to stop; ~20% have a false breakout first.
+        worst_r_sim = min(r, -0.95)  # roughly the stop level
+        if rng.random() < 0.20:
+            best_r_sim = rng.uniform(0.3, 0.9)
+        else:
+            best_r_sim = rng.uniform(0.0, 0.25)
+    lowest_price_seen = round(entry_price + worst_r_sim * risk_per_share, 2)
+    highest_price_seen = round(entry_price + best_r_sim * risk_per_share, 2)
+
     # Time stamps — entry at market open, exit at close of holding-period day
     filled_at = datetime.combine(seed_date, time(9, 31))
     closed_at = datetime.combine(seed_date + timedelta(days=hold_days), time(15, 55))
@@ -153,6 +180,8 @@ def _generate_one_trade(
         "catalyst_quality": catalyst,
         "ep_score": ep_score,
         "account_mode": account_mode,
+        "lowest_price_seen": lowest_price_seen,
+        "highest_price_seen": highest_price_seen,
     }
 
 
@@ -194,6 +223,21 @@ def generate_mock_trades(
                           .where(df["closed_at"].notna()))
     df["pnl_per_share"] = ((df["total_pnl"] / df["entry_shares"])
                            .where(df["entry_shares"] > 0))
+
+    # Excursion R-multiples (worst-vs-entry, best-vs-entry, capture rate).
+    # worst_r is ≤ 0 (lowest_price_seen ≤ entry_price at most); best_r ≥ 0.
+    risk_per_share = df["entry_price"] - df["stop_price"]
+    df["worst_r"] = ((df["lowest_price_seen"] - df["entry_price"]) / risk_per_share)
+    df["best_r"] = ((df["highest_price_seen"] - df["entry_price"]) / risk_per_share)
+    # capture_pct = realized R / best available R. Only meaningful for
+    # WINNING trades (r_multiple > 0): "of the upside available, how much
+    # did we capture?". For losers the ratio is uninformative (a small
+    # false-breakout best_r divided by a negative r produces large
+    # negative numbers that don't mean anything actionable). Restrict to
+    # winners + positive best_r.
+    is_winner = df["r_multiple"] > 0
+    has_upside = df["best_r"] > 0
+    df["capture_pct"] = (df["r_multiple"] / df["best_r"]).where(is_winner & has_upside)
 
     return df
 
@@ -271,6 +315,50 @@ def setup_stats(df: pd.DataFrame) -> pd.DataFrame:
             "avg_hold_days": group["holding_days"].mean(),
             "largest_win": group["total_pnl"].max(),
             "largest_loss": group["total_pnl"].min(),
+        })
+    return pd.DataFrame(rows).sort_values("strategy").reset_index(drop=True)
+
+
+def excursion_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-strategy worst/best R-excursion stats — surfaces setup-quality
+    signals invisible in P&L-only views.
+
+    For each strategy:
+      - median worst_r: how far did trades go underwater typically?
+        (closer to 0 = clean entries; near -1.0 = often touch the stop)
+      - median best_r: how far did trades run in your favor at peak?
+        (high values = wide opportunity; setup worth keeping)
+      - median capture_pct: how much of the available upside did the exit
+        capture? (<0.6 = exiting too early; >0.85 = trail discipline good)
+      - n: closed-trade count (excludes open)
+
+    Open trades excluded — their excursion data isn't final (peak could
+    still extend).
+    """
+    closed = df[df["status"].isin(["closed", "stopped"])].copy()
+    if closed.empty or "worst_r" not in closed.columns:
+        return pd.DataFrame(columns=[
+            "strategy", "n", "median_worst_r", "median_best_r",
+            "median_capture_pct", "median_r",
+        ])
+
+    rows = []
+    for strat, group in closed.groupby("entry_strategy"):
+        valid = group.dropna(subset=["worst_r", "best_r"])
+        if valid.empty:
+            continue
+        # capture_pct median computed over WINNERS only — that's the only
+        # context where "how much of the upside did we get" makes sense.
+        winners = valid[valid["r_multiple"] > 0]
+        rows.append({
+            "strategy": strat,
+            "n": len(valid),
+            "median_worst_r": valid["worst_r"].median(),
+            "median_best_r": valid["best_r"].median(),
+            "median_capture_pct": (
+                winners["capture_pct"].median() if len(winners) else float("nan")
+            ),
+            "median_r": valid["r_multiple"].median(),
         })
     return pd.DataFrame(rows).sort_values("strategy").reset_index(drop=True)
 

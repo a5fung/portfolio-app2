@@ -22,7 +22,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from apollo_data import daily_pnl, load_trades, setup_stats
+from apollo_data import daily_pnl, excursion_stats, load_trades, setup_stats
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Apollo Trades", layout="wide", page_icon="◆")
@@ -467,6 +467,155 @@ else:
             "Trades": st.column_config.NumberColumn(width="small"),
         },
     )
+
+# ── Worst / best price excursion ───────────────────────────────────────────
+st.subheader("Worst-vs-you / best-in-favor")
+st.caption(
+    "How far each trade went underwater vs how high it ran, expressed in R "
+    "(risk-multiples). Bottom-left quadrant = clean entries that ran far. "
+    "Top-right = drag near stop before running. Y=X diagonal = exited at peak."
+)
+
+if "worst_r" in closed_df.columns:
+    valid = closed_df.dropna(subset=["worst_r", "best_r"]).copy()
+else:
+    valid = pd.DataFrame()
+
+if valid.empty:
+    st.info(
+        "No excursion data yet. Apollo started capturing this 2026-05-10; "
+        "backfill closed paper trades via "
+        "`docker exec apollo-market python -m scripts.backfill_position_extremes`."
+    )
+else:
+    # Two-column row: scatter (left) + per-setup median table (right)
+    ex_col1, ex_col2 = st.columns([3, 2])
+
+    with ex_col1:
+        # Color by entry_strategy
+        strategy_colors = {
+            "magna53": C["primary"],
+            "9m_day2": "#3B82F6",  # blue contrast to primary green
+        }
+        ex_fig = go.Figure()
+        for strat, sub in valid.groupby("entry_strategy"):
+            ex_fig.add_trace(go.Scatter(
+                x=sub["worst_r"],
+                y=sub["best_r"],
+                mode="markers",
+                name=strat,
+                marker=dict(
+                    size=10,
+                    color=strategy_colors.get(strat, C["text_muted"]),
+                    line=dict(width=1, color=C["bg"]),
+                    opacity=0.75,
+                ),
+                customdata=sub[["ticker", "r_multiple", "alert_date"]].values,
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b> · "
+                    + strat + "<br>"
+                    "Worst: %{x:+.2f}R · Best: %{y:+.2f}R<br>"
+                    "Exit: %{customdata[1]:+.2f}R<br>"
+                    "Date: %{customdata[2]}<extra></extra>"
+                ),
+            ))
+        # Diagonal y=x reference (only positive quadrant: trades that
+        # reached peak above zero R)
+        max_r = max(valid["best_r"].max(), 1.0) * 1.05
+        ex_fig.add_trace(go.Scatter(
+            x=[0, max_r], y=[0, max_r],
+            mode="lines",
+            line=dict(color=C["text_dim"], width=1, dash="dot"),
+            name="y=x (exit at peak)",
+            hoverinfo="skip",
+            showlegend=False,
+        ))
+        # Axis crosshair lines at 0 and -1 (typical stop)
+        ex_fig.add_hline(y=0, line_width=1, line_color=C["text_dim"])
+        ex_fig.add_vline(x=0, line_width=1, line_color=C["text_dim"])
+        ex_fig.add_vline(
+            x=-1.0, line_width=1, line_color=C["negative"],
+            line_dash="dash",
+            annotation_text="typical stop -1R",
+            annotation_position="bottom right",
+            annotation_font=dict(color=C["text_muted"], size=10),
+        )
+        ex_fig.update_layout(
+            height=440,
+            paper_bgcolor=C["bg"], plot_bgcolor=C["bg"],
+            font=dict(color=C["text"], size=12),
+            xaxis=dict(
+                title="Worst R during hold (drawdown vs entry)",
+                gridcolor=C["grid"], zerolinecolor=C["text_dim"],
+                range=[min(valid["worst_r"].min(), -1.2) * 1.05, 0.2],
+            ),
+            yaxis=dict(
+                title="Best R during hold (peak vs entry)",
+                gridcolor=C["grid"], zerolinecolor=C["text_dim"],
+                range=[-0.2, max_r],
+            ),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02,
+                xanchor="right", x=1,
+                bgcolor="rgba(0,0,0,0)",
+            ),
+            margin=dict(l=60, r=30, t=40, b=50),
+            hoverlabel=dict(
+                bgcolor=C["surface"], bordercolor=C["border"],
+                font=dict(color=C["text"], size=12),
+            ),
+        )
+        st.plotly_chart(ex_fig, use_container_width=True, config=CHART_CONFIG)
+
+    with ex_col2:
+        ex_stats = excursion_stats(closed_df)
+        if ex_stats.empty:
+            st.info("No per-strategy data yet.")
+        else:
+            # Format display
+            ex_stats_disp = ex_stats.copy()
+            ex_stats_disp["median_worst_r"] = ex_stats_disp["median_worst_r"].apply(
+                lambda v: f"{v:+.2f}R" if pd.notna(v) else "—")
+            ex_stats_disp["median_best_r"] = ex_stats_disp["median_best_r"].apply(
+                lambda v: f"{v:+.2f}R" if pd.notna(v) else "—")
+            ex_stats_disp["median_r"] = ex_stats_disp["median_r"].apply(
+                lambda v: f"{v:+.2f}R" if pd.notna(v) else "—")
+            ex_stats_disp["median_capture_pct"] = ex_stats_disp["median_capture_pct"].apply(
+                lambda v: f"{v*100:.0f}%" if pd.notna(v) else "—")
+            ex_stats_disp = ex_stats_disp.rename(columns={
+                "strategy": "Strategy",
+                "n": "N",
+                "median_worst_r": "Worst",
+                "median_best_r": "Best",
+                "median_r": "Exit",
+                "median_capture_pct": "Capture",
+            })
+            st.markdown(
+                f"<div style='color:{C['text_muted']}; font-size:0.85em; "
+                f"margin-top:0.5em;'>Per-strategy medians:</div>",
+                unsafe_allow_html=True,
+            )
+            st.dataframe(
+                ex_stats_disp,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Strategy": st.column_config.TextColumn(width="small"),
+                    "N": st.column_config.NumberColumn(width="small"),
+                },
+            )
+            st.markdown(
+                f"<div style='color:{C['text_muted']}; font-size:0.8em; "
+                f"margin-top:0.8em; line-height:1.5;'>"
+                f"<b>Capture</b> = exit R / best R · "
+                f"&lt;60% = exiting too early · "
+                f"&gt;85% = trail discipline good<br>"
+                f"<b>Worst</b> near -1R = trades often touch stop · "
+                f"near 0 = clean entries<br>"
+                f"<b>Best</b> much &gt; exit = wide opportunity left on table"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
 # ── Equity curve with drawdown shading ─────────────────────────────────────
 st.subheader("Equity curve")
