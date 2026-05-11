@@ -471,13 +471,10 @@ else:
 # ── Worst / best price excursion ───────────────────────────────────────────
 st.subheader("Worst-vs-you / best-in-favor")
 st.caption(
-    "How far each trade went underwater (X, ≤ 0) vs how high it ran (Y, ≥ 0), "
-    "expressed in R-multiples. Regions to watch: **upper-right** (X ≈ 0, "
-    "high Y) = clean entries that ran far — the ideal. **Lower-left** "
-    "(X ≈ -1R, Y ≈ 0) = drilled to stop with no upside. **Upper-left** "
-    "(X very negative, Y high) = wide-volatility trades that ran despite "
-    "drawdown. Dashed diagonal = |worst| = |best|; dots above had more "
-    "upside than downside during the hold."
+    "Per-trade range during hold (R-multiples). X = how far underwater · "
+    "Y = how high it ran. Dashed diagonal = equal magnitude both ways; "
+    "dots above had asymmetric upside (good), dots below had asymmetric "
+    "downside (bad). Color = winner / loser. Shape = strategy."
 )
 
 if "worst_r" in closed_df.columns:
@@ -496,68 +493,92 @@ else:
     ex_col1, ex_col2 = st.columns([3, 2])
 
     with ex_col1:
-        # Color by entry_strategy
-        strategy_colors = {
-            "magna53": C["primary"],
-            "9m_day2": "#3B82F6",  # blue contrast to primary green
-        }
+        # Flip X-axis to positive drawdown magnitude — single-quadrant
+        # first-quadrant chart, much more intuitive than the bipolar
+        # original. Color encodes win/loss (the methodology question:
+        # "do clean-entry winners dominate?"); marker symbol encodes
+        # strategy.
+        plot_df = valid.copy()
+        plot_df["drawdown_r"] = -plot_df["worst_r"]  # always ≥ 0
+        plot_df["is_winner"] = plot_df["r_multiple"] > 0
+
+        strategy_symbols = {"magna53": "circle", "9m_day2": "diamond"}
         ex_fig = go.Figure()
-        for strat, sub in valid.groupby("entry_strategy"):
+        for (is_win, strat), sub in plot_df.groupby(["is_winner", "entry_strategy"]):
+            color = C["positive"] if is_win else C["negative"]
+            label = f"{'Winner' if is_win else 'Loser'} · {strat}"
             ex_fig.add_trace(go.Scatter(
-                x=sub["worst_r"],
+                x=sub["drawdown_r"],
                 y=sub["best_r"],
                 mode="markers",
-                name=strat,
+                name=label,
                 marker=dict(
                     size=10,
-                    color=strategy_colors.get(strat, C["text_muted"]),
+                    color=color,
+                    symbol=strategy_symbols.get(strat, "circle"),
                     line=dict(width=1, color=C["bg"]),
                     opacity=0.75,
                 ),
                 customdata=sub[["ticker", "r_multiple", "alert_date"]].values,
                 hovertemplate=(
-                    "<b>%{customdata[0]}</b> · "
-                    + strat + "<br>"
-                    "Worst: %{x:+.2f}R · Best: %{y:+.2f}R<br>"
+                    "<b>%{customdata[0]}</b> · " + strat + "<br>"
+                    "Drawdown: %{x:.2f}R · Peak: %{y:.2f}R<br>"
                     "Exit: %{customdata[1]:+.2f}R<br>"
                     "Date: %{customdata[2]}<extra></extra>"
                 ),
             ))
-        # Symmetric-volatility diagonal: y = -x. Above the line means
-        # the trade ran more in your favor than against you during the
-        # hold; below = went against more than it ran. Since X ≤ 0 and
-        # Y ≥ 0, the line spans worst_min .. 0 on the X-axis.
-        max_r = max(valid["best_r"].max(), 1.0) * 1.05
-        x_min = min(valid["worst_r"].min(), -1.2) * 1.05
+
+        # y = x diagonal: equal drawdown and runup magnitude. Now lives
+        # entirely inside the visible first quadrant.
+        max_r = max(plot_df["best_r"].max(), plot_df["drawdown_r"].max(), 1.0) * 1.05
         ex_fig.add_trace(go.Scatter(
-            x=[x_min, 0], y=[-x_min, 0],
+            x=[0, max_r], y=[0, max_r],
             mode="lines",
             line=dict(color=C["text_muted"], width=1, dash="dash"),
-            name="|worst| = |best|",
+            name="equal magnitude",
             hoverinfo="skip",
             showlegend=False,
         ))
-        # Axis crosshair lines at 0 and -1 (typical stop)
-        ex_fig.add_hline(y=0, line_width=1, line_color=C["text_dim"])
-        ex_fig.add_vline(x=0, line_width=1, line_color=C["text_dim"])
+
+        # Vertical reference at drawdown=1R (typical stop touch).
         ex_fig.add_vline(
-            x=-1.0, line_width=1, line_color=C["negative"],
-            line_dash="dash",
-            annotation_text="typical stop -1R",
-            annotation_position="bottom right",
+            x=1.0, line_width=1, line_color=C["negative"],
+            line_dash="dot",
+            annotation_text="stop -1R",
+            annotation_position="top right",
             annotation_font=dict(color=C["text_muted"], size=10),
         )
+
+        # Region annotations directly on the chart so the operator
+        # doesn't have to mentally map quadrants to meaning.
+        ex_fig.add_annotation(
+            x=0.05, y=max_r * 0.92, xref="x", yref="y",
+            text="◆ <b>IDEAL</b><br>low drawdown<br>+ ran far",
+            showarrow=False,
+            font=dict(color=C["positive"], size=10),
+            align="left",
+            bgcolor="rgba(0,0,0,0)",
+        )
+        ex_fig.add_annotation(
+            x=max_r * 0.85, y=0.2, xref="x", yref="y",
+            text="◆ <b>STOPPED</b><br>drilled +<br>no upside",
+            showarrow=False,
+            font=dict(color=C["negative"], size=10),
+            align="right",
+            bgcolor="rgba(0,0,0,0)",
+        )
+
         ex_fig.update_layout(
             height=440,
             paper_bgcolor=C["bg"], plot_bgcolor=C["bg"],
             font=dict(color=C["text"], size=12),
             xaxis=dict(
-                title="Worst R during hold (drawdown vs entry)",
+                title="Drawdown during hold (R, magnitude)",
                 gridcolor=C["grid"], zerolinecolor=C["text_dim"],
-                range=[min(valid["worst_r"].min(), -1.2) * 1.05, 0.2],
+                range=[-0.05, max_r],
             ),
             yaxis=dict(
-                title="Best R during hold (peak vs entry)",
+                title="Peak during hold (R, in your favor)",
                 gridcolor=C["grid"], zerolinecolor=C["text_dim"],
                 range=[-0.2, max_r],
             ),
@@ -565,6 +586,7 @@ else:
                 orientation="h", yanchor="bottom", y=1.02,
                 xanchor="right", x=1,
                 bgcolor="rgba(0,0,0,0)",
+                font=dict(size=10),
             ),
             margin=dict(l=60, r=30, t=40, b=50),
             hoverlabel=dict(
