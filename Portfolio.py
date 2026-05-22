@@ -1631,9 +1631,19 @@ with tab2:
             acct_df = fdf[fdf["Account"] == account]
             if acct_df.empty:
                 continue
-            daily = acct_df.groupby("Date")[
-                ["Total Value", "Cash", "Margin Balance", "YTD", "W/D"]
-            ].sum().reset_index()
+            _acct_tmp = acct_df.copy()
+            _acct_tmp["_ytd_wt"] = _acct_tmp["YTD"] * _acct_tmp["Total Value"]
+            daily = _acct_tmp.groupby("Date").agg(
+                **{
+                    "Total Value": ("Total Value", "sum"),
+                    "Cash": ("Cash", "sum"),
+                    "Margin Balance": ("Margin Balance", "sum"),
+                    "W/D": ("W/D", "sum"),
+                    "_ytd_wt": ("_ytd_wt", "sum"),
+                }
+            ).reset_index()
+            daily["YTD"] = (daily["_ytd_wt"] / daily["Total Value"]).fillna(0)
+            daily = daily.drop(columns=["_ytd_wt"])
             daily["Invested"] = daily["Total Value"] - daily["Cash"]
 
             latest_acct = acct_df.iloc[-1]
