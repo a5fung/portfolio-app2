@@ -355,21 +355,38 @@ def setup_stats(df: pd.DataFrame) -> pd.DataFrame:
     closed = df[df["status"].isin(["closed", "stopped"])].copy()
     if closed.empty:
         return pd.DataFrame(columns=[
-            "strategy", "n_trades", "win_rate", "avg_r", "avg_r_win",
-            "avg_r_loss", "profit_factor", "expectancy", "avg_hold_days",
-            "largest_win", "largest_loss",
+            "strategy", "n_trades", "win_rate", "n_win", "n_scratch", "n_loss",
+            "avg_r", "avg_r_win", "avg_r_loss", "profit_factor", "expectancy",
+            "avg_hold_days", "largest_win", "largest_loss",
         ])
+
+    # Win / Scratch / Loss by R-multiple: a near-breakeven trade (|R| < SCRATCH_R)
+    # is a SCRATCH, not a win — so the win rate reflects REAL wins, not flat exits
+    # (e.g. a +$3 / 0.0R fill). Scratches stay in the denominator (conservative).
+    # Corrupt-stop trades (NaN R) fall back to P&L sign. SCRATCH_R is tunable.
+    SCRATCH_R = 0.25
+
+    def _bucket(r, pnl):
+        if pd.notna(r):
+            return "win" if r > SCRATCH_R else ("loss" if r < -SCRATCH_R else "scratch")
+        return "win" if pnl > 0 else ("loss" if pnl < 0 else "scratch")
+
+    closed["_bucket"] = [_bucket(r, p) for r, p in zip(closed["r_multiple"], closed["total_pnl"])]
 
     rows = []
     for strat, group in closed.groupby("entry_strategy"):
-        wins = group[group["total_pnl"] > 0]
-        losses = group[group["total_pnl"] <= 0]
+        wins = group[group["_bucket"] == "win"]
+        losses = group[group["_bucket"] == "loss"]
+        scratches = group[group["_bucket"] == "scratch"]
         win_pnl = wins["total_pnl"].sum()
         loss_pnl_abs = abs(losses["total_pnl"].sum()) or 1.0  # avoid div-by-zero
         rows.append({
             "strategy": strat,
             "n_trades": len(group),
-            "win_rate": len(wins) / max(1, len(group)),
+            "win_rate": len(wins) / max(1, len(group)),  # scratches in denom (conservative)
+            "n_win": len(wins),
+            "n_scratch": len(scratches),
+            "n_loss": len(losses),
             "avg_r": group["r_multiple"].mean(),
             "avg_r_win": wins["r_multiple"].mean() if len(wins) else 0.0,
             "avg_r_loss": losses["r_multiple"].mean() if len(losses) else 0.0,

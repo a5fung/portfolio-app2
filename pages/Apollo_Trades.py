@@ -517,6 +517,8 @@ else:
                 <span>Trades · avg hold</span><span class="strat-row-val">{n_t} · {avg_hold:.1f}d</span></div>
                 <div class="strat-row">
                 <span>Avg R (win/loss)</span><span class="strat-row-val">{row['avg_r_win']:+.2f} / {row['avg_r_loss']:+.2f}</span></div>
+                <div class="strat-row">
+                <span>Win / Scratch / Loss</span><span class="strat-row-val">{int(row['n_win'])} / {int(row['n_scratch'])} / {int(row['n_loss'])}</span></div>
                 """,
                 unsafe_allow_html=True,
             )
@@ -540,6 +542,9 @@ else:
         "strategy": "Strategy",
         "n_trades": "Trades",
         "win_rate": "Win rate",
+        "n_win": "Wins",
+        "n_scratch": "Scratch",
+        "n_loss": "Losses",
         "avg_r": "Avg R",
         "avg_r_win": "Avg R (win)",
         "avg_r_loss": "Avg R (loss)",
