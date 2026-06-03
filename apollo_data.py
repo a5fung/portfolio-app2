@@ -242,6 +242,54 @@ def generate_mock_trades(
     return df
 
 
+def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute the derived analytics columns on a base-schema DataFrame — shared
+    by the mock generator and the db/snapshot reader so both yield identical
+    derived shapes. Null-safe for open trades + missing excursion/fill data."""
+    # Guard: if a stop equals entry (e.g. trailed-to-breakeven without an
+    # original-stop fallback), risk=0 -> NaN rather than inf so the analytics
+    # (avg_r, profit_factor, excursions) aren't poisoned.
+    risk = (df["entry_price"] - df["stop_price"]).replace(0, float("nan"))
+    df["r_multiple"] = (df["exit_price"] - df["entry_price"]) / risk
+    df["holding_days"] = ((df["closed_at"] - df["filled_at"]).dt.days
+                          .where(df["closed_at"].notna() & df["filled_at"].notna()))
+    df["pnl_per_share"] = ((df["total_pnl"] / df["entry_shares"])
+                           .where(df["entry_shares"] > 0))
+    df["worst_r"] = (df["lowest_price_seen"] - df["entry_price"]) / risk
+    df["best_r"] = (df["highest_price_seen"] - df["entry_price"]) / risk
+    is_winner = df["r_multiple"] > 0
+    has_upside = df["best_r"] > 0
+    df["capture_pct"] = (df["r_multiple"] / df["best_r"]).where(is_winner & has_upside)
+    return df
+
+
+def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
+    """Read the real-Apollo-trade snapshot (exported from mi_live_trades) and
+    return the documented schema, account-mode-filtered.
+
+    The snapshot (apollo_trades_paper.json) is a point-in-time export from the
+    Hetzner DB — lets the dashboard be reviewed/iterated on REAL data pre-cutover
+    (operator 2026-06-03). The LIVE direct-Postgres reader is the seamless
+    end-state (same query + schema, swaps in once Tailscale exposes the DB);
+    regenerate the snapshot to refresh until then.
+    """
+    import json
+    path = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
+    with open(path) as f:
+        rows = json.load(f)
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df = df[df["account_mode"] == account_mode].copy()
+    # DB timestamps are UTC; render as naive ET so calendar dates = trading days.
+    for col in ("filled_at", "closed_at"):
+        df[col] = (pd.to_datetime(df[col], utc=True, errors="coerce")
+                   .dt.tz_convert("America/New_York").dt.tz_localize(None))
+    df["alert_date"] = pd.to_datetime(df["alert_date"], errors="coerce").dt.date
+    df = df.sort_values("filled_at", na_position="first").reset_index(drop=True)
+    return _add_derived(df)
+
+
 def load_trades(account_mode: str = "paper") -> pd.DataFrame:
     """Adapter — returns a DataFrame matching the documented schema.
 
@@ -255,13 +303,12 @@ def load_trades(account_mode: str = "paper") -> pd.DataFrame:
     if mode == "mock":
         return generate_mock_trades(account_mode=account_mode)
     elif mode == "db":
-        # Deferred until ≥30 closed live trades exist (~July 2026 earliest).
-        # See memory/project_apollo_trades_dashboard.md for the architectural
-        # fork (direct Postgres + Tailscale OR nightly CSV → Sheets).
-        raise NotImplementedError(
-            "APOLLO_DATA_MODE=db not yet wired. Mock mode covers Phase 1 UI "
-            "scaffold; flip to db after live-trading flip + 30 closed trades."
-        )
+        # Reads the real-Apollo-trade snapshot (paper trades from mi_live_trades).
+        # Operator 2026-06-03: paper-now so the dash is reviewed/iterated on REAL
+        # data; account_mode-parameterized so the LIVE direct-Postgres reader
+        # (Tailscale end-state) swaps in with zero schema change. Snapshot is a
+        # point-in-time export — regenerate to refresh until the live reader lands.
+        return _load_from_snapshot(account_mode)
     else:
         raise ValueError(f"Unknown APOLLO_DATA_MODE={mode!r}; expected 'mock' or 'db'")
 
