@@ -22,7 +22,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from apollo_data import daily_pnl, excursion_stats, load_trades, setup_stats
+from apollo_data import daily_pnl, excursion_stats, load_trades, resolve_data_mode, setup_stats
 from apollo_digest import generate_digest
 
 # ── Page config ─────────────────────────────────────────────────────────────
@@ -115,15 +115,18 @@ with col_toggle:
 
 # Scaffold banner — clear visual marker that this is mock data
 import os
-data_mode = os.environ.get("APOLLO_DATA_MODE", "mock").lower()
+data_mode = resolve_data_mode()
 if data_mode == "mock":
     st.markdown(
         f"""<div class="scaffold-banner">
         <strong>SCAFFOLD MODE</strong> · Methodology-realistic mock data.
-        Switch to live by setting <code>APOLLO_DATA_MODE=db</code>
-        (gated on ≥30 closed live trades).
+        Set <code>APOLLO_DATA_MODE=db</code> (or add the trade snapshot) for real data.
         </div>""",
         unsafe_allow_html=True,
+    )
+else:
+    st.caption(
+        "📊 Real Apollo paper trades · point-in-time snapshot · regenerate to refresh."
     )
 
 # ── Sidebar filters ─────────────────────────────────────────────────────────

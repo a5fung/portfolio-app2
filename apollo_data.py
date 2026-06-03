@@ -246,10 +246,13 @@ def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
     """Compute the derived analytics columns on a base-schema DataFrame — shared
     by the mock generator and the db/snapshot reader so both yield identical
     derived shapes. Null-safe for open trades + missing excursion/fill data."""
-    # Guard: if a stop equals entry (e.g. trailed-to-breakeven without an
-    # original-stop fallback), risk=0 -> NaN rather than inf so the analytics
-    # (avg_r, profit_factor, excursions) aren't poisoned.
-    risk = (df["entry_price"] - df["stop_price"]).replace(0, float("nan"))
+    # Guard: a valid long has stop < entry (risk > 0). A recorded stop >= entry
+    # — corrupt stop data (e.g. CRMD $8.45 vs entry $8.36) or trailed-to-breakeven
+    # (== entry) — makes risk <= 0, which would flip a LOSS into a positive R or
+    # divide by zero. Treat risk <= 0 as invalid -> NaN so the trade drops out of
+    # the R-rankings instead of showing a bogus +R (its real P&L still shows).
+    risk = df["entry_price"] - df["stop_price"]
+    risk = risk.where(risk > 0)
     df["r_multiple"] = (df["exit_price"] - df["entry_price"]) / risk
     df["holding_days"] = ((df["closed_at"] - df["filled_at"]).dt.days
                           .where(df["closed_at"].notna() & df["filled_at"].notna()))
@@ -292,6 +295,17 @@ def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
     return _add_derived(df)
 
 
+def resolve_data_mode() -> str:
+    """The mode load_trades() will actually use: explicit APOLLO_DATA_MODE if
+    set, else auto-detect (db when the real-trade snapshot is present, else
+    mock). Exposed so the UI banner reflects the REAL data source, not a guess."""
+    mode = os.environ.get("APOLLO_DATA_MODE", "").strip().lower()
+    if mode:
+        return mode
+    snap = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
+    return "db" if os.path.exists(snap) else "mock"
+
+
 def load_trades(account_mode: str = "paper") -> pd.DataFrame:
     """Adapter — returns a DataFrame matching the documented schema.
 
@@ -301,13 +315,7 @@ def load_trades(account_mode: str = "paper") -> pd.DataFrame:
                             Tailscale; raises NotImplementedError until
                             live cutover lands and ≥30 trades exist)
     """
-    mode = os.environ.get("APOLLO_DATA_MODE", "").strip().lower()
-    if not mode:
-        # Default: use the real-trade snapshot when present (hosted prod + local
-        # with data), else fall back to mock (fresh clone / layout dev). Force
-        # explicitly with APOLLO_DATA_MODE=mock or =db.
-        _snap = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
-        mode = "db" if os.path.exists(_snap) else "mock"
+    mode = resolve_data_mode()
     if mode == "mock":
         return generate_mock_trades(account_mode=account_mode)
     elif mode == "db":
