@@ -26,6 +26,8 @@ from typing import Optional
 
 import pandas as pd
 
+from apollo_data import classify_outcome
+
 logger = logging.getLogger(__name__)
 
 # Capture % is a median over WINNERS; below this many winners it's variance, not
@@ -83,8 +85,12 @@ def _format_context(
             "No closed-trade data available."
         )
 
-    winners = closed[closed["r_multiple"] > 0]
-    losers = closed[closed["r_multiple"] <= 0]
+    # Scratch-aware outcomes (shared classifier) so the LLM context matches the
+    # scorecards + the rule-based pulse — not a local r>0 re-roll.
+    outcomes = pd.Series(classify_outcome(closed), index=closed.index)
+    winners = closed[outcomes == "win"]
+    scratches = closed[outcomes == "scratch"]
+    losers = closed[outcomes == "loss"]
     total_pnl = closed["total_pnl"].sum()
     avg_r = closed["r_multiple"].mean()
     win_rate = len(winners) / len(closed) if len(closed) else 0.0
@@ -98,7 +104,7 @@ def _format_context(
         f"Account: {account_mode}",
         "",
         "OVERALL STATE",
-        f"  Closed trades: {len(closed)} ({len(winners)} winners, {len(losers)} losers)",
+        f"  Closed trades: {len(closed)} ({len(winners)} winners, {len(scratches)} scratch, {len(losers)} losers)",
         f"  Open trades: {open_n}",
         f"  Win rate: {win_rate:.1%}",
         f"  Net P&L: ${total_pnl:+,.0f}",
