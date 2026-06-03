@@ -281,10 +281,12 @@ def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
     if df.empty:
         return df
     df = df[df["account_mode"] == account_mode].copy()
-    # DB timestamps are UTC; render as naive ET so calendar dates = trading days.
+    # Parse to naive UTC. Intraday ET fills/closes (≈13:30–20:00 UTC) don't cross
+    # midnight, so the calendar DATE already equals the ET trading day — no tz
+    # conversion needed, which avoids a tz-database dependency on the hosted
+    # (Streamlit Cloud) runtime. (Times render in UTC; cosmetic, fixable later.)
     for col in ("filled_at", "closed_at"):
-        df[col] = (pd.to_datetime(df[col], utc=True, errors="coerce")
-                   .dt.tz_convert("America/New_York").dt.tz_localize(None))
+        df[col] = pd.to_datetime(df[col], utc=True, errors="coerce").dt.tz_localize(None)
     df["alert_date"] = pd.to_datetime(df["alert_date"], errors="coerce").dt.date
     df = df.sort_values("filled_at", na_position="first").reset_index(drop=True)
     return _add_derived(df)
@@ -299,7 +301,13 @@ def load_trades(account_mode: str = "paper") -> pd.DataFrame:
                             Tailscale; raises NotImplementedError until
                             live cutover lands and ≥30 trades exist)
     """
-    mode = os.environ.get("APOLLO_DATA_MODE", "mock").lower()
+    mode = os.environ.get("APOLLO_DATA_MODE", "").strip().lower()
+    if not mode:
+        # Default: use the real-trade snapshot when present (hosted prod + local
+        # with data), else fall back to mock (fresh clone / layout dev). Force
+        # explicitly with APOLLO_DATA_MODE=mock or =db.
+        _snap = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
+        mode = "db" if os.path.exists(_snap) else "mock"
     if mode == "mock":
         return generate_mock_trades(account_mode=account_mode)
     elif mode == "db":
