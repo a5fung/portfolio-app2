@@ -575,7 +575,7 @@ st.caption(
     "Per-trade range during hold (R-multiples). X = how far underwater · "
     "Y = how high it ran. Dashed diagonal = 3:1 reward-to-risk reference; "
     "dots above the line had peak ≥ 3× drawdown during the hold (Pradeep "
-    "methodology target). Color = winner / loser. Shape = strategy."
+    "methodology target). Color = winner / scratch / loser. Shape = strategy."
 )
 
 if "worst_r" in closed_df.columns:
@@ -601,13 +601,15 @@ else:
         # strategy.
         plot_df = valid.copy()
         plot_df["drawdown_r"] = -plot_df["worst_r"]  # always ≥ 0
-        plot_df["is_winner"] = plot_df["r_multiple"] > 0
+        plot_df["_outcome"] = classify_outcome(plot_df)
 
         strategy_symbols = {"magna53": "circle", "9m_day2": "diamond"}
+        _oc_color = {"win": C["positive"], "loss": C["negative"], "scratch": C["text_muted"]}
+        _oc_label = {"win": "Winner", "loss": "Loser", "scratch": "Scratch"}
         ex_fig = go.Figure()
-        for (is_win, strat), sub in plot_df.groupby(["is_winner", "entry_strategy"]):
-            color = C["positive"] if is_win else C["negative"]
-            label = f"{'Winner' if is_win else 'Loser'} · {strat}"
+        for (outcome, strat), sub in plot_df.groupby(["_outcome", "entry_strategy"]):
+            color = _oc_color.get(outcome, C["text_muted"])
+            label = f"{_oc_label.get(outcome, outcome)} · {strat}"
             ex_fig.add_trace(go.Scatter(
                 x=sub["drawdown_r"],
                 y=sub["best_r"],
@@ -767,7 +769,9 @@ st.subheader("Equity curve")
 st.caption("Cumulative realized P&L · drawdown shaded · open trades excluded")
 
 if not closed_df.empty:
-    eq = closed_df.sort_values("closed_at")[["closed_at", "total_pnl"]].copy()
+    # Drop trades with no close timestamp — they can't be placed on the time axis
+    # (2 in the current paper cohort); KPI strip still carries their P&L.
+    eq = closed_df.dropna(subset=["closed_at"]).sort_values("closed_at")[["closed_at", "total_pnl"]].copy()
     eq["cum_pnl"] = eq["total_pnl"].cumsum()
     eq["peak"] = eq["cum_pnl"].cummax()
     eq["drawdown"] = eq["cum_pnl"] - eq["peak"]
@@ -832,7 +836,7 @@ if not closed_df.empty:
         out["gap_pct"] = out["gap_pct"].apply(lambda v: f"{v:+.1f}%" if pd.notna(v) else "—")
         out["entry_price"] = out["entry_price"].apply(lambda v: f"${v:.2f}")
         out["exit_price"] = out["exit_price"].apply(lambda v: f"${v:.2f}" if pd.notna(v) else "—")
-        out["r_multiple"] = out["r_multiple"].apply(lambda v: f"{v:+.2f}R")
+        out["r_multiple"] = out["r_multiple"].apply(lambda v: f"{v:+.2f}R" if pd.notna(v) else "—")
         out["total_pnl"] = out["total_pnl"].apply(lambda v: f"${v:+,.0f}")
         out["holding_days"] = out["holding_days"].apply(lambda v: f"{int(v)}d" if pd.notna(v) else "—")
         return out.rename(columns={
@@ -866,12 +870,13 @@ else:
 
 # ── Holding-period histogram ───────────────────────────────────────────────
 st.subheader("Holding period")
-st.caption("Distribution of (closed_at − filled_at) days · split by win/loss")
+st.caption("Distribution of (closed_at − filled_at) days · split by win/loss (scratches excluded)")
 
 if not closed_df.empty and closed_df["holding_days"].notna().any():
     holds = closed_df[closed_df["holding_days"].notna()].copy()
-    wins_h = holds[holds["total_pnl"] > 0]["holding_days"]
-    losses_h = holds[holds["total_pnl"] <= 0]["holding_days"]
+    holds["_outcome"] = classify_outcome(holds)
+    wins_h = holds[holds["_outcome"] == "win"]["holding_days"]
+    losses_h = holds[holds["_outcome"] == "loss"]["holding_days"]
 
     fig_h = go.Figure()
     fig_h.add_trace(go.Histogram(
@@ -954,7 +959,7 @@ with st.expander(f"Trade-level drill-down ({len(df)} trades · click to expand)"
     drill_disp["gap_pct"] = drill_disp["gap_pct"].apply(
         lambda v: f"{v:+.1f}%" if pd.notna(v) else "—")
     drill_disp["ep_score"] = drill_disp["ep_score"].apply(
-        lambda v: f"{v:.0f}" if pd.notna(v) else "—")
+        lambda v: f"{v:.0f}" if pd.notna(v) and v > 0 else "—")  # 0 = not EP-scored (9m)
     drill_disp["r_multiple"] = drill_disp["r_multiple"].apply(
         lambda v: f"{v:+.2f}" if pd.notna(v) else "—")
     drill_disp["total_pnl"] = drill_disp["total_pnl"].apply(
