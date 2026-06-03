@@ -22,7 +22,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from apollo_data import daily_pnl, excursion_stats, load_trades, resolve_data_mode, setup_stats
+from apollo_data import classify_outcome, daily_pnl, excursion_stats, load_trades, resolve_data_mode, setup_stats
 from apollo_digest import generate_digest
 
 # ── Page config ─────────────────────────────────────────────────────────────
@@ -250,11 +250,17 @@ closed_df = df[df["status"].isin(["closed", "stopped"])].copy()
 n_closed = len(closed_df)
 n_open = len(df) - n_closed
 total_pnl = closed_df["total_pnl"].sum()
-wins = closed_df[closed_df["total_pnl"] > 0]
+# Win / scratch / loss via the shared scratch-aware classifier — consistent with
+# the scorecards + digest, not a local total_pnl>0 re-roll (which counted
+# breakeven scratches like PURR/KURA as wins).
+closed_df["_outcome"] = classify_outcome(closed_df)
+wins = closed_df[closed_df["_outcome"] == "win"]
+losses = closed_df[closed_df["_outcome"] == "loss"]
+scratches = closed_df[closed_df["_outcome"] == "scratch"]
 win_rate = len(wins) / max(1, n_closed)
 profit_factor = (
     wins["total_pnl"].sum()
-    / max(1.0, abs(closed_df[closed_df["total_pnl"] <= 0]["total_pnl"].sum()))
+    / max(1.0, abs(losses["total_pnl"].sum()))
 )
 avg_r = closed_df["r_multiple"].mean() if n_closed else 0.0
 
@@ -291,7 +297,7 @@ with k1:
                 unsafe_allow_html=True)
 with k2:
     st.markdown(_kpi("Win rate", f"{win_rate*100:.1f}%",
-                     f"{len(wins)} winners · {n_closed - len(wins)} losers",
+                     f"{len(wins)} win · {len(scratches)} scratch · {len(losses)} loss",
                      color=wr_color),
                 unsafe_allow_html=True)
 with k3:

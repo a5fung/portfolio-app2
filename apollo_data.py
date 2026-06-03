@@ -348,6 +348,25 @@ def daily_pnl(df: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
+SCRATCH_R = 0.25  # |R| below this = a breakeven scratch, not a win or loss
+
+
+def classify_outcome(df: pd.DataFrame) -> list:
+    """Classify each closed trade as 'win' | 'scratch' | 'loss' by R-multiple.
+
+    A near-breakeven trade (|R| < SCRATCH_R) is a SCRATCH — not a win or loss —
+    so win rate reflects real wins, not flat exits. Corrupt-stop trades (NaN R,
+    e.g. a stored stop above entry) fall back to P&L sign. This is the ONE
+    outcome definition; every win-rate surface (setup_stats, the KPI strip, the
+    digest via n_win) consumes it so they cannot drift apart.
+    """
+    def _b(r, pnl):
+        if pd.notna(r):
+            return "win" if r > SCRATCH_R else ("loss" if r < -SCRATCH_R else "scratch")
+        return "win" if pnl > 0 else ("loss" if pnl < 0 else "scratch")
+    return [_b(r, p) for r, p in zip(df["r_multiple"], df["total_pnl"])]
+
+
 def setup_stats(df: pd.DataFrame) -> pd.DataFrame:
     """Per-strategy stats table — win rate / profit factor / expectancy /
     avg R / avg holding days. Open trades excluded.
@@ -360,18 +379,9 @@ def setup_stats(df: pd.DataFrame) -> pd.DataFrame:
             "avg_hold_days", "largest_win", "largest_loss",
         ])
 
-    # Win / Scratch / Loss by R-multiple: a near-breakeven trade (|R| < SCRATCH_R)
-    # is a SCRATCH, not a win — so the win rate reflects REAL wins, not flat exits
-    # (e.g. a +$3 / 0.0R fill). Scratches stay in the denominator (conservative).
-    # Corrupt-stop trades (NaN R) fall back to P&L sign. SCRATCH_R is tunable.
-    SCRATCH_R = 0.25
-
-    def _bucket(r, pnl):
-        if pd.notna(r):
-            return "win" if r > SCRATCH_R else ("loss" if r < -SCRATCH_R else "scratch")
-        return "win" if pnl > 0 else ("loss" if pnl < 0 else "scratch")
-
-    closed["_bucket"] = [_bucket(r, p) for r, p in zip(closed["r_multiple"], closed["total_pnl"])]
+    # One scratch-aware outcome definition (see classify_outcome): scratches
+    # (|R| < SCRATCH_R) stay in the WR denominator but aren't wins (conservative).
+    closed["_bucket"] = classify_outcome(closed)
 
     rows = []
     for strat, group in closed.groupby("entry_strategy"):
