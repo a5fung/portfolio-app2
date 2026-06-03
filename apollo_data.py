@@ -418,7 +418,7 @@ def excursion_stats(df: pd.DataFrame) -> pd.DataFrame:
     closed = df[df["status"].isin(["closed", "stopped"])].copy()
     if closed.empty or "worst_r" not in closed.columns:
         return pd.DataFrame(columns=[
-            "strategy", "n", "median_worst_r", "median_best_r",
+            "strategy", "n", "n_capture", "median_worst_r", "median_best_r",
             "median_capture_pct", "median_r",
         ])
 
@@ -433,6 +433,9 @@ def excursion_stats(df: pd.DataFrame) -> pd.DataFrame:
         rows.append({
             "strategy": strat,
             "n": len(valid),
+            # winners with a real capture value (the N feeding the median below);
+            # consumers gate the capture recommendation on this small-sample count.
+            "n_capture": int(winners["capture_pct"].notna().sum()),
             "median_worst_r": valid["worst_r"].median(),
             "median_best_r": valid["best_r"].median(),
             "median_capture_pct": (

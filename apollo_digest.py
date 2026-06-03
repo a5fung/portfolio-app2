@@ -28,6 +28,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Capture % is a median over WINNERS; below this many winners it's variance, not
+# signal, so the rule-based path reports it as a fact + caveat rather than
+# recommending a trail review (matches the system prompt's N<10 = variance rule).
+_CAPTURE_MIN_WINNERS = 10
+
 
 _SYSTEM_PROMPT = """You are a trading analytics assistant for Apollo, a momentum/EP trading system following Pradeep Bonde / Qullamaggie methodology.
 
@@ -140,14 +145,24 @@ def _rule_based_bullets(
             f"{(df['status'] == 'open').sum()}."
         ]
 
-    winners = closed[closed["r_multiple"] > 0]
     total_pnl = closed["total_pnl"].sum()
-    win_rate = len(winners) / len(closed)
     avg_r = closed["r_multiple"].mean()
+    # Win rate consumes the scratch-aware setup_stats (n_win excludes |R|<0.25
+    # breakeven scratches) so the pulse matches the scorecards — rather than
+    # re-rolling r>0 here, which counted scratches like PURR/KURA as wins.
+    if not setup_stats_df.empty and "n_win" in setup_stats_df.columns:
+        n_win = int(setup_stats_df["n_win"].sum())
+        n_scratch = int(setup_stats_df["n_scratch"].sum())
+        n_loss = int(setup_stats_df["n_loss"].sum())
+        win_rate = n_win / len(closed)
+        wsl = f" ({n_win}W/{n_scratch}S/{n_loss}L)"
+    else:
+        win_rate = len(closed[closed["r_multiple"] > 0]) / len(closed)
+        wsl = ""
 
     bullets = [
         f"Closed {len(closed)} trades in {period_label} — net P&L "
-        f"${total_pnl:+,.0f}, win rate {win_rate:.0%}, avg {avg_r:+.2f}R per trade."
+        f"${total_pnl:+,.0f}, win rate {win_rate:.0%}{wsl}, avg {avg_r:+.2f}R per trade."
     ]
 
     if len(closed) < 10:
@@ -160,7 +175,12 @@ def _rule_based_bullets(
         for _, row in excursion_stats_df.iterrows():
             cap = row.get("median_capture_pct")
             if pd.notna(cap):
-                if cap >= 0.85:
+                n_cap = int(row.get("n_capture", 0) or 0)
+                if n_cap < _CAPTURE_MIN_WINNERS:
+                    # Too few winners to read the capture median as signal — state
+                    # the fact + sample caveat, don't recommend a trail change.
+                    note = f"only {n_cap} winner{'' if n_cap == 1 else 's'} — variance, not signal"
+                elif cap >= 0.85:
                     note = "exit discipline solid"
                 elif cap < 0.60:
                     note = "exiting earlier than peak — trail review worth considering"
