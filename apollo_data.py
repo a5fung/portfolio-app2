@@ -216,30 +216,10 @@ def generate_mock_trades(
     df = pd.DataFrame(rows)
     df = df.sort_values("filled_at").reset_index(drop=True)
 
-    # Derived columns — never queried; computed for UI convenience
-    df["r_multiple"] = ((df["exit_price"] - df["entry_price"])
-                        / (df["entry_price"] - df["stop_price"]))
-    df["holding_days"] = ((df["closed_at"] - df["filled_at"]).dt.days
-                          .where(df["closed_at"].notna()))
-    df["pnl_per_share"] = ((df["total_pnl"] / df["entry_shares"])
-                           .where(df["entry_shares"] > 0))
-
-    # Excursion R-multiples (worst-vs-entry, best-vs-entry, capture rate).
-    # worst_r is ≤ 0 (lowest_price_seen ≤ entry_price at most); best_r ≥ 0.
-    risk_per_share = df["entry_price"] - df["stop_price"]
-    df["worst_r"] = ((df["lowest_price_seen"] - df["entry_price"]) / risk_per_share)
-    df["best_r"] = ((df["highest_price_seen"] - df["entry_price"]) / risk_per_share)
-    # capture_pct = realized R / best available R. Only meaningful for
-    # WINNING trades (r_multiple > 0): "of the upside available, how much
-    # did we capture?". For losers the ratio is uninformative (a small
-    # false-breakout best_r divided by a negative r produces large
-    # negative numbers that don't mean anything actionable). Restrict to
-    # winners + positive best_r.
-    is_winner = df["r_multiple"] > 0
-    has_upside = df["best_r"] > 0
-    df["capture_pct"] = (df["r_multiple"] / df["best_r"]).where(is_winner & has_upside)
-
-    return df
+    # Derived analytics columns via the shared helper — so mock and the
+    # db/snapshot reader yield identical derived shapes, incl. the corrupt-stop
+    # risk>0 guard (a clean generator won't trip it, but the path stays single).
+    return _add_derived(df)
 
 
 def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
@@ -266,6 +246,11 @@ def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# Point-in-time snapshot of real paper trades (exported from mi_live_trades);
+# its presence is also what resolve_data_mode() uses to auto-detect db mode.
+_SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
+
+
 def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
     """Read the real-Apollo-trade snapshot (exported from mi_live_trades) and
     return the documented schema, account-mode-filtered.
@@ -277,8 +262,7 @@ def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
     regenerate the snapshot to refresh until then.
     """
     import json
-    path = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
-    with open(path) as f:
+    with open(_SNAPSHOT_PATH) as f:
         rows = json.load(f)
     df = pd.DataFrame(rows)
     if df.empty:
@@ -302,8 +286,7 @@ def resolve_data_mode() -> str:
     mode = os.environ.get("APOLLO_DATA_MODE", "").strip().lower()
     if mode:
         return mode
-    snap = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
-    return "db" if os.path.exists(snap) else "mock"
+    return "db" if os.path.exists(_SNAPSHOT_PATH) else "mock"
 
 
 def load_trades(account_mode: str = "paper") -> pd.DataFrame:
@@ -439,6 +422,9 @@ def excursion_stats(df: pd.DataFrame) -> pd.DataFrame:
             continue
         # capture_pct median computed over WINNERS only — that's the only
         # context where "how much of the upside did we get" makes sense.
+        # "Winner" here = raw r>0, deliberately NOT the scratch-aware
+        # classify_outcome: a +0.1R scratch that ran to +3R is a real
+        # under-capture, so it stays in the capture denominator.
         winners = valid[valid["r_multiple"] > 0]
         rows.append({
             "strategy": strat,

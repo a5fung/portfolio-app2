@@ -153,18 +153,14 @@ def _rule_based_bullets(
 
     total_pnl = closed["total_pnl"].sum()
     avg_r = closed["r_multiple"].mean()
-    # Win rate consumes the scratch-aware setup_stats (n_win excludes |R|<0.25
-    # breakeven scratches) so the pulse matches the scorecards — rather than
-    # re-rolling r>0 here, which counted scratches like PURR/KURA as wins.
-    if not setup_stats_df.empty and "n_win" in setup_stats_df.columns:
-        n_win = int(setup_stats_df["n_win"].sum())
-        n_scratch = int(setup_stats_df["n_scratch"].sum())
-        n_loss = int(setup_stats_df["n_loss"].sum())
-        win_rate = n_win / len(closed)
-        wsl = f" ({n_win}W/{n_scratch}S/{n_loss}L)"
-    else:
-        win_rate = len(closed[closed["r_multiple"] > 0]) / len(closed)
-        wsl = ""
+    # Win rate via the shared scratch-aware classify_outcome (|R|<0.25 = breakeven
+    # scratch, not a win) computed straight off `closed` — matches the scorecards
+    # (identical to summing setup_stats' per-strategy n_win) with no fallback
+    # branch that could re-roll a divergent r>0 WR (which counted scratches as wins).
+    _oc = classify_outcome(closed)
+    n_win, n_scratch, n_loss = _oc.count("win"), _oc.count("scratch"), _oc.count("loss")
+    win_rate = n_win / len(closed)
+    wsl = f" ({n_win}W/{n_scratch}S/{n_loss}L)"
 
     bullets = [
         f"Closed {len(closed)} trades in {period_label} — net P&L "

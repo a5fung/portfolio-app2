@@ -113,8 +113,7 @@ with col_toggle:
         st.session_state.dark_mode = not st.session_state.dark_mode
         st.rerun()
 
-# Scaffold banner — clear visual marker that this is mock data
-import os
+# Scaffold banner — shows only in mock mode (data-mode resolved centrally)
 data_mode = resolve_data_mode()
 if data_mode == "mock":
     st.markdown(
@@ -601,7 +600,7 @@ else:
         # strategy.
         plot_df = valid.copy()
         plot_df["drawdown_r"] = -plot_df["worst_r"]  # always ≥ 0
-        plot_df["_outcome"] = classify_outcome(plot_df)
+        # _outcome inherited from closed_df (classified once at the KPI strip)
 
         strategy_symbols = {"magna53": "circle", "9m_day2": "diamond"}
         _oc_color = {"win": C["positive"], "loss": C["negative"], "scratch": C["text_muted"]}
@@ -873,8 +872,7 @@ st.subheader("Holding period")
 st.caption("Distribution of (closed_at − filled_at) days · split by win/loss (scratches excluded)")
 
 if not closed_df.empty and closed_df["holding_days"].notna().any():
-    holds = closed_df[closed_df["holding_days"].notna()].copy()
-    holds["_outcome"] = classify_outcome(holds)
+    holds = closed_df[closed_df["holding_days"].notna()].copy()  # inherits _outcome
     wins_h = holds[holds["_outcome"] == "win"]["holding_days"]
     losses_h = holds[holds["_outcome"] == "loss"]["holding_days"]
 
