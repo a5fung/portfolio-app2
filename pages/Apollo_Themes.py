@@ -52,6 +52,11 @@ from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
 from theme_detail import render_detail  # noqa: E402
 
+# Shared "Dark Mode" sidebar toggle — identical to Portfolio / Apollo Trades.
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = True
+st.sidebar.toggle("Dark Mode", value=st.session_state.dark_mode, key="dark_mode")
+
 st.title("📈 Apollo Themes")
 st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")
 

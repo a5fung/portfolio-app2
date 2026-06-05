@@ -15,7 +15,6 @@ from pathlib import Path
 import numpy as np
 import math
 from streamlit_javascript import st_javascript
-from app_theme import is_dark
 
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
@@ -76,10 +75,8 @@ C_LIGHT = {
     "grid":         "#D4D4D8",   # Slightly darker grid for white bg
 }
 
-# Theme follows Streamlit's native switch (☰ → Settings → Theme) — app-global +
-# persists across all tabs. Mirror it into dark_mode so the palette logic below
-# is unchanged.
-st.session_state.dark_mode = is_dark()
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = True
 C = C_DARK if st.session_state.dark_mode else C_LIGHT
 _svg_stroke = C["text"].replace("#", "%23")
 
@@ -262,8 +259,7 @@ st.markdown(f"""
     /* UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
     section[data-testid="stSidebar"] {{ background-color: {C["bg"]} !important; border-right: 1px solid {C["border"]}; }}
-    /* Keep #MainMenu visible — it holds Settings → Theme (the app-wide light/dark toggle). */
-    footer, [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
+    #MainMenu, footer, [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
     .block-container {{ padding-top: 1.5rem !important; }}
 
     /* 10. HERO HUD — desktop: side-by-side */
@@ -932,7 +928,7 @@ def _on_date_picker_change():
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### Filters")
-    st.caption("🎨 Theme · ☰ menu → Settings → Theme")
+    st.toggle("Dark Mode", value=st.session_state.dark_mode, key="dark_mode")
     st.toggle("Privacy Mode", value=False, key="privacy_mode")
 
     if st.button("🔄 Refresh Data", use_container_width=True):
