@@ -262,7 +262,8 @@ st.markdown(f"""
     /* UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
     section[data-testid="stSidebar"] {{ background-color: {C["bg"]} !important; border-right: 1px solid {C["border"]}; }}
-    #MainMenu, footer, [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
+    /* Keep #MainMenu visible — it holds Settings → Theme (the app-wide light/dark toggle). */
+    footer, [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
     .block-container {{ padding-top: 1.5rem !important; }}
 
     /* 10. HERO HUD — desktop: side-by-side */
