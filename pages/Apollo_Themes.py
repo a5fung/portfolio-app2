@@ -28,12 +28,6 @@ st.set_page_config(page_title="Apollo Themes", layout="wide", page_icon="📈")
 from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
 from theme_detail import render_detail  # noqa: E402
-from app_theme import is_dark  # noqa: E402
-
-# Follow Streamlit's native theme (⋮ → Settings → Theme) — it flips everything,
-# including the st.dataframe tables that CSS can't recolor. Mirror into dark_mode
-# so the grid palette (theme_palette.active) follows it.
-st.session_state.dark_mode = is_dark()
 
 st.title("📈 Apollo Themes")
 st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")

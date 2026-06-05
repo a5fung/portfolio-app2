@@ -16,7 +16,6 @@ from theme_palette import active
 
 _RANK_FLOOR = 50          # ranks worse than this collapse into "out" tone
 # blank/out cell colors now come from theme_palette (dark/light) — see _rank_color.
-_TXT_BRIGHT = "#0a0a0a"   # near-black on bright cells (high contrast)
 _TXT_DIM = "#e8e8e8"      # light text on the green gradient cells (both modes)
 
 _DELTA_UP = "#3fb950"      # green — rank improved
@@ -232,33 +231,28 @@ def render_grid() -> None:
         deltas[theme] = _rank_delta(ranks)
 
     # Top tickers per theme — most-recent snapshot, ordered by current RS.
+    # `latest` (built above) already holds the latest-week row per theme, indexed
+    # by name, so look up directly instead of re-scanning df per theme.
     latest_tickers: dict[str, tuple[str, ...]] = {}
     for theme in pivot_rank.index:
-        row = df[(df["name"] == theme) & (df["week_start"] == latest_week)]
-        if not row.empty and row.iloc[0]["tickers"]:
-            latest_tickers[theme] = tuple(row.iloc[0]["tickers"])
+        tickers = latest.at[theme, "tickers"] if theme in latest.index else None
+        if tickers:
+            latest_tickers[theme] = tuple(tickers)
     member_preview = get_top_members_by_rs(latest_tickers, n=4) if latest_tickers else {}
     if alias_count:
         for theme, n_aliases in alias_count.items():
             if theme in member_preview:
                 member_preview[theme] = f"{member_preview[theme]}  ⧉{n_aliases}"
 
-    # Theme cell holds a URL-encoded drill value plus a readable fragment.
-    # Encoding `?drill=` is mandatory — themes with `&` (e.g. "Satellite Imagery
-    # & Geospatial Intelligence") would otherwise split the query string and
-    # st.query_params would see only "Satellite Imagery ", so detail.py fell
-    # back to themes[0] (Agri-Chemical) every time. The `#…` fragment is what
-    # display_text's regex captures for rendering — fragments aren't sent to
-    # the server, so st.query_params is unaffected.
-    # Render as an HTML table (NOT st.dataframe) so the active palette fully
-    # controls every color — st.dataframe follows Streamlit's own theme and would
-    # ignore the Dark Mode toggle. Drill-down is a plain ?drill= link the page
-    # catches; theme names are URL-encoded so '&' in a name doesn't split it.
+    # Render as an HTML table (not st.dataframe) so the active palette fully
+    # controls every cell color — it follows the native Streamlit theme. Drill-
+    # down is a plain ?drill=<url-encoded theme> link the page catches; encoding
+    # is required so a '&' in a theme name (e.g. "Satellite Imagery & Geospatial
+    # Intelligence") doesn't split the query string.
     import html as _html
 
     P = active()
-    _dark = P["page_bg"] == "#0e1117"
-    _bd = "#30363d" if _dark else "#d7dbe0"
+    _bd = P["border"]
     _head_bg = P["sidebar_bg"]
     _txt = P["text"]
 
