@@ -1,0 +1,15 @@
+# Secrets — NEVER commit. Set these in Streamlit Cloud (Settings → Secrets) for
+# the deployed app, and keep a local .streamlit/secrets.toml (ignored) for local runs.
+.streamlit/secrets.toml
+.streamlit/secrets*.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
