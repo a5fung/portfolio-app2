@@ -66,6 +66,21 @@ st.markdown(
     .stApp {{ background-color: {_P['page_bg']}; }}
     .stApp, .stMarkdown, p, span, label, li, h1, h2, h3, h4, h5, h6 {{ color: {_P['text']}; }}
     section[data-testid="stSidebar"] {{ background-color: {_P['sidebar_bg']}; }}
+    /* Streamlit themes its input widgets statically (config base=dark), so the
+       sidebar selectbox / multiselect / number inputs stayed dark in light mode.
+       Re-color them to follow the toggle. */
+    section[data-testid="stSidebar"] [data-baseweb="select"] > div,
+    section[data-testid="stSidebar"] [data-baseweb="input"],
+    section[data-testid="stSidebar"] [data-baseweb="base-input"],
+    section[data-testid="stSidebar"] [data-testid="stNumberInputContainer"],
+    section[data-testid="stSidebar"] input {{
+        background-color: {_P['page_bg']} !important;
+        color: {_P['text']} !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] button {{
+        background-color: {_P['sidebar_bg']} !important;
+        color: {_P['text']} !important;
+    }}
     </style>""",
     unsafe_allow_html=True,
 )
