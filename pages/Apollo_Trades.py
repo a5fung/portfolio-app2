@@ -24,6 +24,7 @@ import streamlit as st
 
 from apollo_data import classify_outcome, daily_pnl, excursion_stats, load_trades, resolve_data_mode, setup_stats
 from apollo_digest import generate_digest
+from theme_state import render_toggle
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Apollo Trades", layout="wide", page_icon="◆")
@@ -125,7 +126,7 @@ else:
 # ── Sidebar filters ─────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
-    st.toggle("Dark Mode", value=st.session_state.dark_mode, key="dark_mode")
+    render_toggle()
     account_mode = st.selectbox(
         "Account", ["paper", "live"], index=0,
         help="Paper trading data while live cutover pending.",

@@ -250,84 +250,69 @@ def render_grid() -> None:
     # back to themes[0] (Agri-Chemical) every time. The `#…` fragment is what
     # display_text's regex captures for rendering — fragments aren't sent to
     # the server, so st.query_params is unaffected.
-    display = pd.DataFrame(
-        {
-            "Theme": [
-                f"?drill={quote(t, safe='')}#{t}" for t in pivot_rank.index
-            ],
-            "Members": [member_preview.get(t, "") for t in pivot_rank.index],
-            "Now": [
-                int(pivot_rank.at[t, latest_week])
-                if latest_week in pivot_rank.columns and pd.notna(pivot_rank.at[t, latest_week])
-                else None
-                for t in pivot_rank.index
-            ],
-            "Δ": [deltas[t][0] for t in pivot_rank.index],
-        },
-        index=pivot_rank.index,
-    )
-    for wk in week_cols:
-        display[wk.isoformat()] = [
-            _format_value(pivot_value.at[t, wk], encoding) for t in pivot_rank.index
+    # Render as an HTML table (NOT st.dataframe) so the active palette fully
+    # controls every color — st.dataframe follows Streamlit's own theme and would
+    # ignore the Dark Mode toggle. Drill-down is a plain ?drill= link the page
+    # catches; theme names are URL-encoded so '&' in a name doesn't split it.
+    import html as _html
+
+    P = active()
+    _dark = P["page_bg"] == "#0e1117"
+    _bd = "#30363d" if _dark else "#d7dbe0"
+    _head_bg = P["sidebar_bg"]
+    _txt = P["text"]
+
+    def _cell(bg, color, val, weight="normal"):
+        return (
+            f'<td style="background:{bg};color:{color};text-align:center;'
+            f'padding:3px 6px;font-weight:{weight};border:1px solid {_bd};'
+            f'font-variant-numeric:tabular-nums">{val}</td>'
+        )
+
+    def _th(label, align="center"):
+        return (
+            f'<th style="text-align:{align};padding:4px 6px;color:{_txt};'
+            f'background:{_head_bg};border:1px solid {_bd};font-size:11px;'
+            f'white-space:nowrap">{label}</th>'
+        )
+
+    rows_html = []
+    for theme in pivot_rank.index:
+        drill = quote(str(theme), safe="")
+        name_esc = _html.escape(str(theme))
+        members_esc = _html.escape(member_preview.get(theme, ""))
+        cells = [
+            (f'<td style="text-align:left;padding:3px 8px;border:1px solid {_bd};'
+             f'max-width:300px"><a href="?drill={drill}" target="_self" '
+             f'style="color:{_txt};text-decoration:none">{name_esc}</a></td>'),
+            (f'<td style="text-align:left;padding:3px 8px;border:1px solid {_bd};'
+             f'color:{_txt};font-size:12px;white-space:nowrap">{members_esc}</td>'),
         ]
+        now_rank = pivot_rank.at[theme, latest_week] if latest_week in pivot_rank.columns else None
+        nbg, ntxt = _rank_color(now_rank)
+        nval = f"#{int(now_rank)}" if now_rank is not None and not pd.isna(now_rank) else ""
+        cells.append(_cell(nbg, ntxt, nval, "600"))
+        dtext, dcolor = deltas[theme]
+        cells.append(
+            f'<td style="text-align:center;color:{dcolor};font-weight:600;'
+            f'border:1px solid {_bd};padding:3px 6px">{_html.escape(dtext)}</td>'
+        )
+        for wk in week_cols:
+            bg, txt = _rank_color(pivot_rank.at[theme, wk])
+            val = _html.escape(str(_format_value(pivot_value.at[theme, wk], encoding)))
+            cells.append(_cell(bg, txt, val))
+        rows_html.append("<tr>" + "".join(cells) + "</tr>")
 
-    week_str_cols = [wk.isoformat() for wk in week_cols]
+    head = _th("Theme", "left") + _th("Top members", "left") + _th("Now") + _th("Δ")
+    for wk in week_cols:
+        head += _th(wk.isoformat()[5:])
 
-    def _style(_df: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame("", index=_df.index, columns=_df.columns)
-        for col_idx, wk in enumerate(week_cols):
-            col_name = week_str_cols[col_idx]
-            for theme in _df.index:
-                bg, txt = _rank_color(pivot_rank.at[theme, wk])
-                out.at[theme, col_name] = (
-                    f"background-color: {bg}; color: {txt}; "
-                    f"text-align: center; font-variant-numeric: tabular-nums;"
-                )
-        for theme in _df.index:
-            now_rank = pivot_rank.at[theme, latest_week] if latest_week in pivot_rank.columns else None
-            bg, txt = _rank_color(now_rank)
-            out.at[theme, "Now"] = (
-                f"background-color: {bg}; color: {txt}; "
-                f"text-align: center; font-weight: 600;"
-            )
-            delta_color = deltas[theme][1]
-            out.at[theme, "Δ"] = (
-                f"color: {delta_color}; font-weight: 600; text-align: center;"
-            )
-        return out
-
-    styled = display.style.apply(_style, axis=None)
-    styled = styled.set_table_styles([
-        {"selector": "th.col_heading", "props": "writing-mode: vertical-rl; transform: rotate(180deg); text-align: center; font-size: 11px;"},
-        {"selector": "th.row_heading", "props": "text-align: left; max-width: 320px; font-size: 13px;"},
-    ])
-
-    n_rows = len(display)
-    height = min(900, 60 + 32 * n_rows)
-
-    st.caption("👉 Click any **theme name** to drill into the detail view.")
-
-    st.dataframe(
-        styled,
-        height=height,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Theme": st.column_config.LinkColumn(
-                "Theme",
-                display_text=r"#(.+)$",
-                help="Click to open detail view",
-                width="large",
-            ),
-            "Members": st.column_config.TextColumn(
-                "Top members",
-                help=(
-                    "Top 4 tickers by current RS · trailing +N is the rest · "
-                    "⧉N marks N absorbed alias themes (subset-aware dedup)."
-                ),
-                width="medium",
-            ),
-        },
+    st.caption("👉 Click any theme name to open its detail view.")
+    st.markdown(
+        f'<div style="overflow-x:auto;max-height:760px;overflow-y:auto">'
+        f'<table style="border-collapse:collapse;font-size:13px;width:100%;color:{_txt}">'
+        f'<thead><tr>{head}</tr></thead><tbody>{"".join(rows_html)}</tbody></table></div>',
+        unsafe_allow_html=True,
     )
 
     n_aliases_total = sum(alias_count.values())
@@ -384,4 +369,4 @@ def render_grid() -> None:
         )
     else:
         dedup_note = " · dedup off"
-    st.caption(f"Latest week: **{latest_week}** · {len(display)} themes shown{dedup_note}")
+    st.caption(f"Latest week: **{latest_week}** · {len(pivot_rank)} themes shown{dedup_note}")

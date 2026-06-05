@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import math
 from streamlit_javascript import st_javascript
+from theme_state import render_toggle
 
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
@@ -928,7 +929,7 @@ def _on_date_picker_change():
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### Filters")
-    st.toggle("Dark Mode", value=st.session_state.dark_mode, key="dark_mode")
+    render_toggle()
     st.toggle("Privacy Mode", value=False, key="privacy_mode")
 
     if st.button("🔄 Refresh Data", use_container_width=True):
