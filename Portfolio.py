@@ -260,7 +260,8 @@ st.markdown(f"""
     /* UI CLEANUP */
     [data-testid="stMetric"] {{ background: transparent !important; border: none !important; padding: 0 !important; }}
     section[data-testid="stSidebar"] {{ background-color: {C["bg"]} !important; border-right: 1px solid {C["border"]}; }}
-    #MainMenu, footer, [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
+    footer, [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
+    #MainMenu, [data-testid="stMainMenu"], [data-testid="stToolbar"] {{ visibility: visible !important; }}
     .block-container {{ padding-top: 1.5rem !important; }}
 
     /* 10. HERO HUD — desktop: side-by-side */
