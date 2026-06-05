@@ -28,39 +28,12 @@ st.set_page_config(page_title="Apollo Themes", layout="wide", page_icon="📈")
 from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
 from theme_detail import render_detail  # noqa: E402
-from theme_state import render_toggle  # noqa: E402
-from theme_palette import active  # noqa: E402
+from app_theme import is_dark  # noqa: E402
 
-# Shared Dark Mode toggle — one persisted state across all pages.
-render_toggle()
-
-# Page background + text follow the toggle (same approach as Apollo Trades), so
-# the WHOLE Themes page flips — without this the page stayed dark and light-mode
-# text was invisible (dark text on a dark page).
-_P = active()
-st.markdown(
-    f"""<style>
-    .stApp {{ background-color: {_P['page_bg']}; }}
-    .stApp, .stMarkdown, p, span, label, li, h1, h2, h3, h4, h5, h6 {{ color: {_P['text']}; }}
-    section[data-testid="stSidebar"] {{ background-color: {_P['sidebar_bg']}; }}
-    /* Streamlit themes its input widgets statically (config base=dark), so the
-       sidebar selectbox / multiselect / number inputs stayed dark in light mode.
-       Re-color them to follow the toggle. */
-    section[data-testid="stSidebar"] [data-baseweb="select"] > div,
-    section[data-testid="stSidebar"] [data-baseweb="input"],
-    section[data-testid="stSidebar"] [data-baseweb="base-input"],
-    section[data-testid="stSidebar"] [data-testid="stNumberInputContainer"],
-    section[data-testid="stSidebar"] input {{
-        background-color: {_P['page_bg']} !important;
-        color: {_P['text']} !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stNumberInput"] button {{
-        background-color: {_P['sidebar_bg']} !important;
-        color: {_P['text']} !important;
-    }}
-    </style>""",
-    unsafe_allow_html=True,
-)
+# Follow Streamlit's native theme (⋮ → Settings → Theme) — it flips everything,
+# including the st.dataframe tables that CSS can't recolor. Mirror into dark_mode
+# so the grid palette (theme_palette.active) follows it.
+st.session_state.dark_mode = is_dark()
 
 st.title("📈 Apollo Themes")
 st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")
