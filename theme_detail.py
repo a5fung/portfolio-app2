@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from theme_data import TunnelDownError, get_active_themes, get_correlated_themes, get_theme_detail
+from theme_palette import active
 
 
 _STAGE_COLORS = {
@@ -46,11 +47,12 @@ def _rank_arc_chart(arc: pd.DataFrame) -> go.Figure:
     )
     fig.update_yaxes(autorange="reversed", title="Rank", zeroline=False)
     fig.update_xaxes(title=None)
+    P = active()
     fig.update_layout(
         height=280, margin=dict(l=10, r=10, t=30, b=10),
         title="Rank arc (lower = better)",
-        showlegend=False, paper_bgcolor="#0e1117", plot_bgcolor="#161b22",
-        font=dict(color="#e8e8e8"),
+        showlegend=False, paper_bgcolor=P["chart_paper"], plot_bgcolor=P["chart_plot"],
+        font=dict(color=P["chart_font"]),
     )
     return fig
 
@@ -77,11 +79,12 @@ def _rs_arc_chart(arc: pd.DataFrame) -> go.Figure:
             hovertemplate="<b>Week %{x}</b><br>Breadth: %{y:.0f}%<extra></extra>",
         )
     )
+    P = active()
     fig.update_layout(
         height=280, margin=dict(l=10, r=10, t=30, b=10),
         title="RS avg + member breadth",
-        paper_bgcolor="#0e1117", plot_bgcolor="#161b22",
-        font=dict(color="#e8e8e8"),
+        paper_bgcolor=P["chart_paper"], plot_bgcolor=P["chart_plot"],
+        font=dict(color=P["chart_font"]),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         yaxis=dict(title="RS avg"),
         yaxis2=dict(title="Breadth %", overlaying="y", side="right",

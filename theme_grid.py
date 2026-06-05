@@ -11,15 +11,13 @@ import pandas as pd
 import streamlit as st
 
 from theme_data import TunnelDownError, dedup_themes, get_top_members_by_rs, get_weekly_grid
+from theme_palette import active
 
 
 _RANK_FLOOR = 50          # ranks worse than this collapse into "out" tone
-_BG_OUT = "#1e1f24"       # dim grey for out-of-range
-_BG_BLANK = "#0e1117"     # streamlit dark bg — no snapshot
-_TXT_OUT = "#5a5d63"
-_TXT_BLANK = "#2c2e34"
+# blank/out cell colors now come from theme_palette (dark/light) — see _rank_color.
 _TXT_BRIGHT = "#0a0a0a"   # near-black on bright cells (high contrast)
-_TXT_DIM = "#e8e8e8"
+_TXT_DIM = "#e8e8e8"      # light text on the green gradient cells (both modes)
 
 _DELTA_UP = "#3fb950"      # green — rank improved
 _DELTA_DOWN = "#f85149"    # red — rank declined
@@ -48,16 +46,21 @@ _RANK_KNEE = 15
 def _rank_color(rank: float | None) -> tuple[str, str]:
     """Return (background, text) for a given rank. Brighter = better.
 
+    Theme-aware: blank/out cells come from the active (dark/light) palette; the
+    green gradient + its light text are mode-independent (dark-green cells read
+    on either page background).
+
     Piecewise gradient: ranks 1..15 occupy the broad bright→mid range so the
     leaders are visually distinguished from each other. Ranks 16..50 fade
     quickly into the deep/dim range so they read as "background pack" rather
     than competing with the leaders.
     """
+    P = active()
     if rank is None or pd.isna(rank):
-        return _BG_BLANK, _TXT_BLANK
+        return P["cell_blank_bg"], P["cell_blank_txt"]
     r = int(rank)
     if r > _RANK_FLOOR:
-        return _BG_OUT, _TXT_OUT
+        return P["cell_out_bg"], P["cell_out_txt"]
     if r <= _RANK_KNEE:
         # 1 → 50% (vivid), 15 → 26% (deep)
         t = (r - 1) / (_RANK_KNEE - 1)
