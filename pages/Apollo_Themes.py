@@ -21,32 +21,9 @@ import streamlit as st
 st.set_page_config(page_title="Apollo Themes", layout="wide", page_icon="📈")
 
 
-# ── Auth gate ─────────────────────────────────────────────────────────────────
-# Streamlit multipage pages are reachable by direct URL and do NOT inherit the
-# main page's gate automatically. session_state IS shared within a browser
-# session, so this passes through silently once you've logged in on the main
-# Portfolio page, and prompts on direct access. Same mechanism as Portfolio.py
-# (shared `password_correct` key + `app_password` secret).
-def _check_password() -> bool:
-    if st.session_state.get("password_correct"):
-        return True
-    st.title("📈 Apollo Themes")
-    pw = st.text_input("Enter Password", type="password", key="pw_themes")
-    if pw:
-        try:
-            if pw == st.secrets["app_password"]:
-                st.session_state["password_correct"] = True
-                st.rerun()
-            else:
-                st.error("Incorrect password")
-        except Exception:
-            st.error("Password not configured in secrets")
-    return False
-
-
-if not _check_password():
-    st.stop()
-
+# No password gate on this page: theme data is low-sensitivity, and the grid's
+# drill-down links do a full page reload (fresh session) — a gate here would
+# re-prompt for the password on every theme click.
 
 from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
