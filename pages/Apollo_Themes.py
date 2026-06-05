@@ -5,14 +5,14 @@ sibling page to Apollo Trades. Same data-path pattern: reads a committed
 point-in-time snapshot (apollo_themes_snapshot.json, exported read-only from
 Hetzner mi_themes + mi_stock_scores) so the cloud app never touches private
 Postgres. View logic lives in theme_grid.py / theme_detail.py; data in
-theme_data.py; colors in theme_palette.py — all interface-parity with
-rs-theme-dash so the views are near-verbatim ports.
+theme_data.py; colors in theme_palette.py.
 
 Source of truth: mi_themes (the live theme engine's output). Narrative/Lane-2
 themes (#167) flow in automatically once they canonicalize into mi_themes.
 
-Dark/light: shares the `dark_mode` session key with Apollo Trades, so the
-toggle on either tab drives both.
+Dark/light: follows the app's NATIVE Streamlit theme (☰ → Settings → Theme), the
+single app-global toggle that persists across all tabs and flips everything
+including the data grid. Custom colors follow it via theme_palette.active().
 """
 from __future__ import annotations
 
@@ -48,43 +48,12 @@ if not _check_password():
     st.stop()
 
 
-# ── Imports (after set_page_config) ───────────────────────────────────────────
-from theme_palette import active  # noqa: E402
-from theme_data import snapshot_meta  # noqa: E402
+from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
 from theme_detail import render_detail  # noqa: E402
 
-
-# ── Dark/light chrome ─────────────────────────────────────────────────────────
-# Shares `dark_mode` with Apollo Trades (default dark). The ported views read
-# the same palette via theme_palette.active() for their cell/chart colors.
-if "dark_mode" not in st.session_state:
-    st.session_state.dark_mode = True
-
-P = active()
-st.markdown(
-    f"""
-    <style>
-    .stApp {{ background-color: {P['page_bg']}; }}
-    .stApp, .stMarkdown, p, span, label, li,
-    h1, h2, h3, h4, h5, h6 {{ color: {P['text']}; }}
-    [data-testid="stSidebar"] {{ background-color: {P['sidebar_bg']}; }}
-    [data-testid="stMetricValue"], [data-testid="stMetricLabel"] {{ color: {P['text']}; }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ── Header + theme toggle ─────────────────────────────────────────────────────
-col_title, col_toggle = st.columns([4, 1])
-with col_title:
-    st.title("📈 Apollo Themes")
-    st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")
-with col_toggle:
-    if st.button("◐ Theme", use_container_width=True):
-        st.session_state.dark_mode = not st.session_state.dark_mode
-        st.rerun()
+st.title("📈 Apollo Themes")
+st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")
 
 _meta = snapshot_meta()
 if _meta.get("generated_at"):

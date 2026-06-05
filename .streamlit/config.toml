@@ -1,0 +1,5 @@
+# App-wide DEFAULT theme. Users switch live via ☰ → Settings → Theme; the choice
+# is app-global and persists across all pages (Portfolio, Apollo Trades, Apollo
+# Themes). Every custom palette follows it via app_theme.is_dark().
+[theme]
+base = "dark"

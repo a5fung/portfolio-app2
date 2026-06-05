@@ -24,6 +24,7 @@ import streamlit as st
 
 from apollo_data import classify_outcome, daily_pnl, excursion_stats, load_trades, resolve_data_mode, setup_stats
 from apollo_digest import generate_digest
+from app_theme import is_dark
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Apollo Trades", layout="wide", page_icon="◆")
@@ -50,8 +51,9 @@ C_LIGHT = {
     "border": "#D4D4D8", "grid": "#D4D4D8",
 }
 
-if "dark_mode" not in st.session_state:
-    st.session_state.dark_mode = True
+# Theme follows Streamlit's native switch (☰ → Settings → Theme), shared across
+# all tabs. Mirror into dark_mode so the palette logic below is unchanged.
+st.session_state.dark_mode = is_dark()
 C = C_DARK if st.session_state.dark_mode else C_LIGHT
 
 CHART_CONFIG = {"displayModeBar": False, "staticPlot": False, "scrollZoom": False}
@@ -102,16 +104,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-col_title, col_toggle = st.columns([4, 1])
-with col_title:
-    st.title("◆ Apollo Trades")
-    st.caption(
-        "Long-term retrospection · Calendar P&L · Setup-tagged performance"
-    )
-with col_toggle:
-    if st.button("◐ Theme", use_container_width=True):
-        st.session_state.dark_mode = not st.session_state.dark_mode
-        st.rerun()
+st.title("◆ Apollo Trades")
+st.caption(
+    "Long-term retrospection · Calendar P&L · Setup-tagged performance"
+)
 
 # Scaffold banner — shows only in mock mode (data-mode resolved centrally)
 data_mode = resolve_data_mode()
