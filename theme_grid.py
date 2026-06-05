@@ -283,10 +283,12 @@ def render_grid() -> None:
         members_esc = _html.escape(member_preview.get(theme, ""))
         cells = [
             (f'<td style="text-align:left;padding:3px 8px;border:1px solid {_bd};'
-             f'max-width:300px"><a href="?drill={drill}" target="_self" '
+             f'background:{P["cell_blank_bg"]};max-width:300px">'
+             f'<a href="?drill={drill}" target="_self" '
              f'style="color:{_txt};text-decoration:none">{name_esc}</a></td>'),
             (f'<td style="text-align:left;padding:3px 8px;border:1px solid {_bd};'
-             f'color:{_txt};font-size:12px;white-space:nowrap">{members_esc}</td>'),
+             f'background:{P["cell_blank_bg"]};color:{_txt};font-size:12px;'
+             f'white-space:nowrap">{members_esc}</td>'),
         ]
         now_rank = pivot_rank.at[theme, latest_week] if latest_week in pivot_rank.columns else None
         nbg, ntxt = _rank_color(now_rank)
@@ -295,7 +297,8 @@ def render_grid() -> None:
         dtext, dcolor = deltas[theme]
         cells.append(
             f'<td style="text-align:center;color:{dcolor};font-weight:600;'
-            f'border:1px solid {_bd};padding:3px 6px">{_html.escape(dtext)}</td>'
+            f'background:{P["cell_blank_bg"]};border:1px solid {_bd};'
+            f'padding:3px 6px">{_html.escape(dtext)}</td>'
         )
         for wk in week_cols:
             bg, txt = _rank_color(pivot_rank.at[theme, wk])

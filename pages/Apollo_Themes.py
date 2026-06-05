@@ -52,9 +52,23 @@ from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
 from theme_detail import render_detail  # noqa: E402
 from theme_state import render_toggle  # noqa: E402
+from theme_palette import active  # noqa: E402
 
 # Shared Dark Mode toggle — one persisted state across all pages.
 render_toggle()
+
+# Page background + text follow the toggle (same approach as Apollo Trades), so
+# the WHOLE Themes page flips — without this the page stayed dark and light-mode
+# text was invisible (dark text on a dark page).
+_P = active()
+st.markdown(
+    f"""<style>
+    .stApp {{ background-color: {_P['page_bg']}; }}
+    .stApp, .stMarkdown, p, span, label, li, h1, h2, h3, h4, h5, h6 {{ color: {_P['text']}; }}
+    section[data-testid="stSidebar"] {{ background-color: {_P['sidebar_bg']}; }}
+    </style>""",
+    unsafe_allow_html=True,
+)
 
 st.title("📈 Apollo Themes")
 st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")
