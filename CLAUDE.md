@@ -79,9 +79,15 @@ touches the private DB. Theme modules: `theme_data.py` (snapshot adapter),
 - **Theme repaint lag**: custom content (cards, theme grid) repaints on the next
   interaction, not instantly, on a native-theme flip. Fix = use Streamlit's live
   theme CSS variables instead of baked hex. Cosmetic, low priority.
-- **Theme snapshot freshness**: `apollo_themes_snapshot.json` is regenerated
-  manually (`Apollo_Assistant/scripts/export_theme_snapshot.sql`). Wire a daily
-  auto-export after Apollo's 5PM data pull (Apollo-side; needs push creds to this repo).
+- **Snapshot freshness (BOTH snapshots are manual until auto-export ships)**:
+  `apollo_themes_snapshot.json` ← `Apollo_Assistant/scripts/export_theme_snapshot.sql`;
+  `apollo_trades_paper.json` ← `Apollo_Assistant/scripts/export_trades_snapshot.sql`
+  (saved 2026-06-10 after the trades snapshot silently sat at 6/03 for a week —
+  the original export was ad-hoc/unsaved). One-liner in each SQL's header:
+  ssh + `docker exec -i apollo-postgres psql … < script.sql > snapshot.json`,
+  then commit+push here (Streamlit Cloud redeploys on push). Wire a daily
+  auto-export after Apollo's 5PM data pull (Apollo-side #194; needs push creds
+  to this repo).
 - **Security**: `.streamlit/secrets.toml` was committed to public git history earlier
   (now gitignored). Rotate `app_password` + the Anthropic key — the old values
   remain recoverable from history.
