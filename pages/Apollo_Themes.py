@@ -38,6 +38,44 @@ if _meta.get("generated_at"):
     st.caption(f"📸 Snapshot generated {_gen} UTC · RS as of {_meta.get('score_date')} · point-in-time, regenerate to refresh.")
 
 
+# ── #398: two-way search — a ticker → its themes · a name → its stocks ───────
+# Mirrors the Telegram `/themes <arg>` lanes (shipped 6/28): ticker-shaped input
+# tries the ticker lane first, falls through to a theme-name search on a miss.
+from theme_data import get_themes_for_ticker, get_theme_members, get_active_themes  # noqa: E402
+
+_q = st.text_input(
+    "🔎 Ticker or theme name", "",
+    placeholder="e.g. NVDA — or: semiconductor",
+    help="A 1-5 letter ticker lists its active themes; anything else searches theme names.",
+).strip()
+if _q:
+    _hits = get_themes_for_ticker(_q) if (_q.isalpha() and len(_q) <= 5) else None
+    if _hits is not None and not _hits.empty:
+        st.markdown(f"**{_q.upper()}** is in **{len(_hits)}** active theme(s):")
+        for _, _r in _hits.iterrows():
+            st.markdown(
+                f"- [{_r['name']}](?drill={_r['name']}) — {_r['stage']} · "
+                f"RS {_r['rs_avg']:.0f} · {_r['members']} members"
+            )
+    else:
+        _names = [n for n in get_active_themes() if _q.lower() in n.lower()]
+        if not _names:
+            st.info(
+                f"No active theme contains **{_q.upper()}** and no theme name matches "
+                f"“{_q}” (recency window 7d)."
+            )
+        elif len(_names) == 1:
+            _members = get_theme_members(_names[0])
+            st.markdown(
+                f"**[{_names[0]}](?drill={_names[0]})** — {len(_members)} members: "
+                + " · ".join(_members)
+            )
+        else:
+            st.markdown(f"**{len(_names)}** theme names match “{_q}”:")
+            for _n in _names:
+                st.markdown(f"- [{_n}](?drill={_n})")
+
+
 # ── View router (ported from rs-theme-dash/ThemeDash.py) ─────────────────────
 if "view" not in st.session_state:
     st.session_state["view"] = "Grid"

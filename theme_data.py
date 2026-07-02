@@ -320,3 +320,45 @@ def _compute_churn(arc: pd.DataFrame, weeks_back: int = 4) -> dict:
         "joined": sorted(latest - baseline),
         "exited": sorted(baseline - latest),
     }
+
+
+@st.cache_data(ttl=300)
+def get_themes_for_ticker(ticker: str, stale_after_days: int = 7) -> pd.DataFrame:
+    """#398 two-way lookup, ticker→themes half: active themes (recency window,
+    not Retired) whose LATEST snapshot row contains the ticker. Membership is
+    judged on each theme's latest row only — a ticker that exited last week
+    doesn't count (mirrors the Telegram `/themes TICKER` lane semantics).
+    Columns: name, stage, theme_date, rs_avg, members."""
+    d = _load()
+    df = d["themes"]
+    if df.empty:
+        return pd.DataFrame()
+    cutoff = date.today() - timedelta(days=stale_after_days)
+    live = df[(df["theme_date"] >= cutoff) & (df["stage"] != "Retired")]
+    if live.empty:
+        return pd.DataFrame()
+    latest = live.sort_values("theme_date").groupby("name").tail(1)
+    tk = ticker.strip().upper()
+    hits = latest[latest["tickers"].apply(lambda ts: tk in (ts or []))].copy()
+    if hits.empty:
+        return pd.DataFrame()
+    hits["members"] = hits["tickers"].apply(len)
+    return hits.sort_values("rs_avg", ascending=False, na_position="last")[
+        ["name", "stage", "theme_date", "rs_avg", "members"]
+    ].reset_index(drop=True)
+
+
+@st.cache_data(ttl=300)
+def get_theme_members(name: str, stale_after_days: int = 7) -> list[str]:
+    """#398 name→stocks half: the LATEST active row's ticker list for a theme
+    (empty list when the theme is outside the recency window / Retired)."""
+    d = _load()
+    df = d["themes"]
+    if df.empty:
+        return []
+    cutoff = date.today() - timedelta(days=stale_after_days)
+    live = df[(df["theme_date"] >= cutoff) & (df["stage"] != "Retired")
+              & (df["name"] == name)]
+    if live.empty:
+        return []
+    return list(live.sort_values("theme_date").iloc[-1]["tickers"] or [])
