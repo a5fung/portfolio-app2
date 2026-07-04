@@ -86,6 +86,34 @@ def _format_value(value, encoding: str) -> str:
     return str(value)
 
 
+def _render_young_strip(young_latest, min_age) -> None:
+    # 🆕 New-themes strip — the thin-history themes filtered out of the grid above
+    # (the post-6/25 discovery wave debuts with a single weekly snapshot; a grid row
+    # of 11 empty cells reads as breakage). Compact, drill-linked, nothing hidden.
+    import html as _html
+    if young_latest is None or young_latest.empty:
+        return
+    if True:
+        st.subheader(f"🆕 New themes ({len(young_latest)})")
+        st.caption(
+            f"Fewer than {min_age} weekly snapshots — too new for a rank arc. "
+            "They join the grid as history accrues."
+        )
+        _lines = []
+        for _, row in young_latest.head(40).iterrows():
+            _nm = str(row["name"])
+            _drill = quote(_nm, safe="")
+            _members = len(row["tickers"]) if row["tickers"] else 0
+            _rs = f"{row['rs_avg']:.0f}" if row["rs_avg"] == row["rs_avg"] else "?"
+            _lines.append(
+                f'<a href="?drill={_drill}" target="_self">{_html.escape(_nm)}</a>'
+                f' · {_html.escape(str(row["stage"]))} · RS {_rs} · {_members} members'
+            )
+        st.markdown("<br>".join(_lines), unsafe_allow_html=True)
+        if len(young_latest) > 40:
+            st.caption(f"…and {len(young_latest) - 40} more — use the search box above.")
+
+
 def render_grid() -> None:
     st.header("Theme Rank Grid")
     st.caption("Weekly snapshots — last trading day per ISO week. Brighter cell = top rank.")
@@ -103,7 +131,12 @@ def render_grid() -> None:
             ["Nascent", "Accelerating", "Mainstream", "Fading", "Retired"],
             default=["Nascent", "Accelerating", "Mainstream", "Fading"],
         )
-        min_age = st.number_input("Min weeks active", min_value=0, value=0, step=1)
+        min_age = st.number_input(
+            "Min weeks active (grid)", min_value=0, value=2, step=1,
+            help="Themes with fewer weekly snapshots than this move to the compact "
+                 "'New themes' strip below the grid instead of rendering "
+                 "mostly-empty rows (the post-6/25 discovery wave debuts with 1 week "
+                 "of history). Set 0 to put everything in the grid.")
         only_ranked_now = st.checkbox(
             "Hide themes with no current rank", value=True,
             help="Hides themes that did not appear in the most recent week."
@@ -166,13 +199,19 @@ def render_grid() -> None:
         keep_names = latest[latest["stage"].isin(stage_filter)].index
         df = df[df["name"].isin(keep_names)]
 
+    young_latest = None  # themes excluded from the grid for thin history -> the strip below
     if not df.empty:
         weeks_per_theme = df.groupby("name")["week_start"].nunique()
         keep_names = weeks_per_theme[weeks_per_theme >= min_age].index
+        young_names = weeks_per_theme[weeks_per_theme < min_age].index
+        _lat = df[df["week_start"] == df["week_start"].max()]
+        young_latest = (_lat[_lat["name"].isin(young_names)]
+                        .sort_values("rs_avg", ascending=False, na_position="last"))
         df = df[df["name"].isin(keep_names)]
 
     if df.empty:
         st.info("No themes match the current filters.")
+        _render_young_strip(young_latest, min_age)
         return
 
     # When dedup is on, SQL ranks span the original (alias-polluted) universe — recompute
@@ -367,3 +406,5 @@ def render_grid() -> None:
     else:
         dedup_note = " · dedup off"
     st.caption(f"Latest week: **{latest_week}** · {len(pivot_rank)} themes shown{dedup_note}")
+
+    _render_young_strip(young_latest, min_age)

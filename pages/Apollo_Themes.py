@@ -42,6 +42,7 @@ if _meta.get("generated_at"):
 # Mirrors the Telegram `/themes <arg>` lanes (shipped 6/28): ticker-shaped input
 # tries the ticker lane first, falls through to a theme-name search on a miss.
 from theme_data import get_themes_for_ticker, get_theme_members, get_active_themes  # noqa: E402
+from urllib.parse import quote  # noqa: E402 — drill URLs need %-encoding (spaces/'&' break markdown links)
 
 _q = st.text_input(
     "🔎 Ticker or theme name", "",
@@ -54,7 +55,7 @@ if _q:
         st.markdown(f"**{_q.upper()}** is in **{len(_hits)}** active theme(s):")
         for _, _r in _hits.iterrows():
             st.markdown(
-                f"- [{_r['name']}](?drill={_r['name']}) — {_r['stage']} · "
+                f"- [{_r['name']}](?drill={quote(str(_r['name']), safe='')}) — {_r['stage']} · "
                 f"RS {_r['rs_avg']:.0f} · {_r['members']} members"
             )
     else:
@@ -67,13 +68,13 @@ if _q:
         elif len(_names) == 1:
             _members = get_theme_members(_names[0])
             st.markdown(
-                f"**[{_names[0]}](?drill={_names[0]})** — {len(_members)} members: "
+                f"**[{_names[0]}](?drill={quote(_names[0], safe='')})** — {len(_members)} members: "
                 + " · ".join(_members)
             )
         else:
             st.markdown(f"**{len(_names)}** theme names match “{_q}”:")
             for _n in _names:
-                st.markdown(f"- [{_n}](?drill={_n})")
+                st.markdown(f"- [{_n}](?drill={quote(_n, safe='')})")
 
 
 # ── View router (ported from rs-theme-dash/ThemeDash.py) ─────────────────────
