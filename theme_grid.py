@@ -5,6 +5,7 @@ swapped (live Postgres -> snapshot adapter). Logic/visuals unchanged.
 """
 from __future__ import annotations
 
+import html as _html
 from urllib.parse import quote
 
 import pandas as pd
@@ -90,28 +91,27 @@ def _render_young_strip(young_latest, min_age) -> None:
     # 🆕 New-themes strip — the thin-history themes filtered out of the grid above
     # (the post-6/25 discovery wave debuts with a single weekly snapshot; a grid row
     # of 11 empty cells reads as breakage). Compact, drill-linked, nothing hidden.
-    import html as _html
     if young_latest is None or young_latest.empty:
         return
-    if True:
-        st.subheader(f"🆕 New themes ({len(young_latest)})")
-        st.caption(
-            f"Fewer than {min_age} weekly snapshots — too new for a rank arc. "
-            "They join the grid as history accrues."
+
+    st.subheader(f"🆕 New themes ({len(young_latest)})")
+    st.caption(
+        f"Fewer than {min_age} weekly snapshots — too new for a rank arc. "
+        "They join the grid as history accrues."
+    )
+    _lines = []
+    for _, row in young_latest.head(40).iterrows():
+        _nm = str(row["name"])
+        _drill = quote(_nm, safe="")
+        _members = len(row["tickers"]) if row["tickers"] else 0
+        _rs = f"{row['rs_avg']:.0f}" if pd.notna(row["rs_avg"]) else "?"
+        _lines.append(
+            f'<a href="?drill={_drill}" target="_self">{_html.escape(_nm)}</a>'
+            f' · {_html.escape(str(row["stage"]))} · RS {_rs} · {_members} members'
         )
-        _lines = []
-        for _, row in young_latest.head(40).iterrows():
-            _nm = str(row["name"])
-            _drill = quote(_nm, safe="")
-            _members = len(row["tickers"]) if row["tickers"] else 0
-            _rs = f"{row['rs_avg']:.0f}" if row["rs_avg"] == row["rs_avg"] else "?"
-            _lines.append(
-                f'<a href="?drill={_drill}" target="_self">{_html.escape(_nm)}</a>'
-                f' · {_html.escape(str(row["stage"]))} · RS {_rs} · {_members} members'
-            )
-        st.markdown("<br>".join(_lines), unsafe_allow_html=True)
-        if len(young_latest) > 40:
-            st.caption(f"…and {len(young_latest) - 40} more — use the search box above.")
+    st.markdown("<br>".join(_lines), unsafe_allow_html=True)
+    if len(young_latest) > 40:
+        st.caption(f"…and {len(young_latest) - 40} more — use the search box above.")
 
 
 def render_grid() -> None:
