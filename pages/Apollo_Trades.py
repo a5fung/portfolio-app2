@@ -257,6 +257,11 @@ profit_factor = (
     / max(1.0, abs(losses["total_pnl"].sum()))
 )
 avg_r = closed_df["r_multiple"].mean() if n_closed else 0.0
+# Corrupt/degenerate-stop closed trades (risk<=0 -> r_multiple NaN in _add_derived,
+# e.g. CRMD, or trailed-to-breakeven) are silently skipped by avg_r + the R
+# distributions. Surface the count so the operator sees how many closed trades
+# were dropped from the R-stats rather than assuming avg_r spans all n_closed (#185).
+n_r_excluded = int(closed_df["r_multiple"].isna().sum()) if n_closed else 0
 
 # Equity curve for max-drawdown calc (cheap; avoids re-aggregating later)
 if n_closed:
@@ -296,7 +301,7 @@ with k2:
                 unsafe_allow_html=True)
 with k3:
     st.markdown(_kpi("Avg R", f"{avg_r:+.2f}R",
-                     "per closed trade"),
+                     "per closed trade" + (f" · {n_r_excluded} R-excluded (corrupt stop)" if n_r_excluded else "")),
                 unsafe_allow_html=True)
 with k4:
     st.markdown(_kpi("Profit factor", f"{profit_factor:.2f}",
