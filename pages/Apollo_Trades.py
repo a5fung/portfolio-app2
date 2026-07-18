@@ -120,15 +120,15 @@ if data_mode == "mock":
     )
 else:
     st.caption(
-        "📊 Real Apollo paper trades · point-in-time snapshot · regenerate to refresh."
+        "📊 Real Apollo live trades (toggle Account → paper for the sim book) · point-in-time snapshot · regenerate to refresh."
     )
 
 # ── Sidebar filters ─────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
     account_mode = st.selectbox(
-        "Account", ["paper", "live"], index=0,
-        help="Paper trading data while live cutover pending.",
+        "Account", ["live", "paper"], index=0,
+        help="Live account (real money) since the 2026-07-17 cutover. Toggle to paper for the sim book.",
     )
     days_back_options = {
         "Last 30 days": 30, "Last 60 days": 60, "Last 90 days": 90,
