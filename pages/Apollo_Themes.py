@@ -28,7 +28,8 @@ st.set_page_config(page_title="Apollo Themes", layout="wide", page_icon="📈")
 from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
 from theme_detail import render_detail  # noqa: E402
-from theme_ecosystem_view import render_ecosystems  # noqa: E402 — #472 ADR 0032 two-level board
+# #472 ecosystem view is imported lazily in the render branch below, wrapped so a load
+# failure degrades to Grid instead of crashing the whole Apollo Themes page.
 
 st.title("📈 Apollo Themes")
 st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")
@@ -101,7 +102,13 @@ view = st.sidebar.radio(
 st.session_state["view"] = view
 
 if view == "Ecosystems":
-    render_ecosystems()
+    try:
+        from theme_ecosystem_view import render_ecosystems  # lazy: isolate any load failure to this tab
+        render_ecosystems()
+    except Exception as _eco_err:  # never crash the whole page — Grid/Detail must stay usable
+        st.error("⚠ Ecosystem view failed to load — the error is shown below; the Grid view still works.")
+        st.exception(_eco_err)
+        render_grid()
 elif view == "Grid":
     render_grid()
 else:
