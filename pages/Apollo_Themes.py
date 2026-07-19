@@ -28,6 +28,7 @@ st.set_page_config(page_title="Apollo Themes", layout="wide", page_icon="📈")
 from theme_data import snapshot_meta  # noqa: E402 — after set_page_config
 from theme_grid import render_grid  # noqa: E402
 from theme_detail import render_detail  # noqa: E402
+from theme_ecosystem_view import render_ecosystems  # noqa: E402 — #472 ADR 0032 two-level board
 
 st.title("📈 Apollo Themes")
 st.caption("RS theme rank evolution · narrative arcs over weekly snapshots · source: mi_themes (live theme engine)")
@@ -78,11 +79,15 @@ if _q:
 
 
 # ── View router (ported from rs-theme-dash/ThemeDash.py) ─────────────────────
+# #472 (ADR 0032): "Ecosystems" is the new two-level board and the default
+# landing view (parity with the Telegram `/themes` default), but the flat
+# "Grid"/"Detail" views stay fully intact and one click away — nothing removed.
+_VIEWS = ["Ecosystems", "Grid", "Detail"]
 if "view" not in st.session_state:
-    st.session_state["view"] = "Grid"
+    st.session_state["view"] = "Ecosystems"
 
-# Drill-down via query param: the grid renders ?drill=<theme> links. Catch it,
-# set state, clear the param, rerun into the detail view.
+# Drill-down via query param: the grid/ecosystem view renders ?drill=<theme>
+# links. Catch it, set state, clear the param, rerun into the detail view.
 if "drill" in st.query_params:
     st.session_state["selected_theme"] = st.query_params["drill"]
     st.session_state["view"] = "Detail"
@@ -90,12 +95,14 @@ if "drill" in st.query_params:
     st.rerun()
 
 view = st.sidebar.radio(
-    "View", ["Grid", "Detail"],
-    index=["Grid", "Detail"].index(st.session_state["view"]),
+    "View", _VIEWS,
+    index=_VIEWS.index(st.session_state["view"]) if st.session_state["view"] in _VIEWS else 0,
 )
 st.session_state["view"] = view
 
-if view == "Grid":
+if view == "Ecosystems":
+    render_ecosystems()
+elif view == "Grid":
     render_grid()
 else:
     render_detail()

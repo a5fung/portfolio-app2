@@ -60,6 +60,18 @@ def _load() -> dict:
             themes["pct_above_20sma"] = (
                 pd.to_numeric(themes["pct_above_20sma"], errors="coerce") * 100
             )
+        # e_code (#194, ADR 0032) — the ecosystem this theme maps to. Normalize
+        # missing/null/blank -> E-UNASSIGNED so every downstream consumer can
+        # trust the column exists and is never null; older snapshots exported
+        # before #194 simply won't have the field at all, which degrades
+        # cleanly to "everything unassigned" (the flat view is unaffected).
+        from ecosystem_score import E_UNASSIGNED
+        if "e_code" not in themes.columns:
+            themes["e_code"] = E_UNASSIGNED
+        else:
+            themes["e_code"] = themes["e_code"].fillna(E_UNASSIGNED)
+            _blank = themes["e_code"].astype(str).str.strip() == ""
+            themes.loc[_blank, "e_code"] = E_UNASSIGNED
 
     scores = pd.DataFrame(raw.get("stock_scores", []))
 
@@ -220,6 +232,121 @@ def get_top_members_by_rs(theme_tickers: dict[str, tuple[str, ...]], n: int = 4)
             text += f"  +{overflow}"
         out[theme] = text
     return out
+
+
+@st.cache_data(ttl=300)
+def get_ecosystem_board(stale_after_days: int = 7) -> dict:
+    """ADR 0032 two-level board data: ecosystems ranked by the D3 boosted
+    score, each with its member sub-themes carrying a global theme rank —
+    the SAME grouping/scoring path as the Telegram `/themes` v2 board
+    (`ecosystem_score._group_and_rank_ecosystems`, ported verbatim from
+    Apollo's theme_ecosystems.py; see that module's docstring).
+
+    Mirrors agent.py's `_handle_theme_query` (briefing._compute_scored_themes
+    + theme_ecosystems.format_ecosystem_board): each theme's "comp" is
+    recomputed as trimmed_mean(rs_composite) over its CURRENT members from
+    the snapshot's single stock_scores cross-section — never the stored
+    `score` column (mixed-scale landmine, see CLAUDE.md). Day-over-day
+    `delta` compares against the most recent PRIOR theme_date's stored
+    `rs_avg` — one global prior date, mirroring Apollo's
+    `get_prior_theme_scores` (not a per-theme lookback).
+
+    Returns {} when there's no theme with at least one scored member in the
+    window (degenerate/empty-snapshot case — caller falls back to the flat
+    view, same contract as get_active_themes returning []).
+
+    Return shape:
+      {
+        "ordered_codes": [e_code, ...],           # ecosystem display order
+        "active_by_eco": {e_code: [scored_theme_dict, ...]},
+        "fading_by_eco": {e_code: [{"name", "tickers"}, ...]},
+        "scores": {e_code: {"raw","strong","depth","boost","boosted",
+                             "member_union","n_scored","n_active_themes"}},
+        "global_rank": {theme_name: int},         # rank across ALL themes by comp
+        "eco_display": {e_code: {"e_code","name"}},  # taxonomy display names
+        "latest_date": date,
+      }
+    scored_theme_dict = {"name","stage","comp","delta","tickers","n_scored"}
+    (delta is None when no prior-day rs_avg exists for that theme).
+    """
+    from ecosystem_score import E_UNASSIGNED, _group_and_rank_ecosystems, get_ecosystem_map, trimmed_mean
+
+    d = _load()
+    df = d["themes"]
+    if df.empty:
+        return {}
+
+    cutoff = date.today() - timedelta(days=stale_after_days)
+    window = df[(df["theme_date"] >= cutoff) & (df["stage"] != "Retired")]
+    if window.empty:
+        return {}
+
+    latest = window.sort_values("theme_date").groupby("name").tail(1)
+
+    scores_df = d["scores"]
+    rs_by_ticker: dict[str, dict] = {}
+    if not scores_df.empty:
+        rs_by_ticker = {
+            row["ticker"]: {"rs_composite": row["rs_composite"]}
+            for _, row in scores_df.iterrows()
+        }
+
+    # One global prior date — the most recent theme_date strictly before the
+    # latest date seen in this window (mirrors get_prior_theme_scores: a
+    # single snapshot-day-back, not a per-theme lookback).
+    latest_date = latest["theme_date"].max()
+    prior_dates = df.loc[df["theme_date"] < latest_date, "theme_date"]
+    prior_rs_avg: dict[str, float] = {}
+    if not prior_dates.empty:
+        prior_date = prior_dates.max()
+        prior_rows = df[df["theme_date"] == prior_date]
+        prior_rs_avg = dict(zip(prior_rows["name"], prior_rows["rs_avg"]))
+
+    eco_map: dict[str, str] = {}
+    scored_themes: list[dict] = []
+    fading: list[dict] = []
+    for _, row in latest.iterrows():
+        name = row["name"]
+        tickers = list(row["tickers"] or [])
+        eco_map[name] = row["e_code"]
+
+        if row["stage"] == "Fading":
+            fading.append({"name": name, "tickers": tickers})
+            continue
+
+        comps = [
+            rs_by_ticker[tk]["rs_composite"] for tk in tickers
+            if tk in rs_by_ticker and rs_by_ticker[tk]["rs_composite"] is not None
+            and pd.notna(rs_by_ticker[tk]["rs_composite"])
+        ]
+        if not comps:
+            continue
+        comp = trimmed_mean(comps)
+        prior = prior_rs_avg.get(name)
+        delta = (comp - prior) if (prior is not None and pd.notna(prior)) else None
+        scored_themes.append({
+            "name": name, "stage": row["stage"], "comp": comp, "delta": delta,
+            "tickers": tickers, "n_scored": len(comps),
+        })
+
+    if not scored_themes and not fading:
+        return {}
+
+    scored_themes.sort(key=lambda x: -x["comp"])
+    global_rank = {st["name"]: i for i, st in enumerate(scored_themes, 1)}
+
+    ordered, active_by_eco, fading_by_eco, eco_scores = _group_and_rank_ecosystems(
+        scored_themes, fading, rs_by_ticker, eco_map)
+
+    return {
+        "ordered_codes": ordered,
+        "active_by_eco": active_by_eco,
+        "fading_by_eco": fading_by_eco,
+        "scores": eco_scores,
+        "global_rank": global_rank,
+        "eco_display": get_ecosystem_map(),
+        "latest_date": latest_date,
+    }
 
 
 @st.cache_data(ttl=300)

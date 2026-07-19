@@ -1,0 +1,153 @@
+# REFERENCE COPY ONLY — verbatim from apollo_the_wise/theme_ecosystems.yaml
+# @ git short sha 1115b37. NOT read by any portfolio-app2 code at runtime
+# (this repo has no PyYAML dependency and Streamlit Cloud installs strictly
+# from requirements.txt) — the live source of truth for the dashboard is the
+# embedded `_TAXONOMY` list in ecosystem_score.py. Kept here so the two can
+# be diffed by eye when Apollo's taxonomy changes; update BOTH by hand.
+#
+# Theme ecosystem taxonomy — the curated PRIMARY-theme axis (ADR 0032).
+#
+# SSoT for the E-* layer. Operator-signed 2026-07-14 (20 buckets + reserved
+# E-UNASSIGNED). This is a CURATED, stable ranking axis (D1); new ecosystems are
+# added here by the operator OR auto-promoted via the discovery lane (D1, Phase 3)
+# after a 48h grace-veto window. Themes map INTO these buckets via
+# mi_theme_ecosystems (Haiku at birth + keyword/exemplar fallback → E-UNASSIGNED).
+#
+# AI is deliberately DISTRIBUTED, not one bucket (operator 2026-07-14: "ai is
+# multiple themes"): AI-silicon → E-AISEMI, AI-datacenter → E-AIINFRA, AI-software
+# → E-SAAS, AI-native security → E-CYBR. Merging them recreates the cyber-blob.
+#
+# keyword_stems = lowercase substrings for the deterministic fallback classifier
+# (used only when the Haiku assignment abstains). exemplars = anchor tickers.
+# Edit freely — no code change needed; the loader reads this file at runtime.
+
+version: 1
+
+ecosystems:
+  - e_code: E-CYBR
+    name: Cybersecurity
+    description: Security software & platforms — endpoint, network/firewall/SASE, identity/zero-trust, vulnerability & exposure mgmt, data security, AI-native security.
+    keyword_stems: [security, cyber, zero-trust, endpoint, firewall, sase, identity, vulnerability, exposure, threat, cyber-resilience]
+    exemplars: [CRWD, PANW, FTNT, TENB, OKTA, ZS, S, NET, CYBR, QLYS, RPD, VRNS]
+
+  - e_code: E-AISEMI
+    name: AI silicon & semiconductors
+    description: Chips & silicon — GPU/accelerators, memory, analog, foundry/fabless, semi-cap equipment.
+    keyword_stems: [semiconductor, silicon, chip, gpu, accelerator, foundry, fabless, memory, dram, analog, wafer, semi-cap]
+    exemplars: [NVDA, AVGO, AMD, MU, LSCC, NXPI, ARM, MRVL]
+
+  - e_code: E-AIINFRA
+    name: AI cloud & datacenter
+    description: The AI build-out physical/network layer — datacenter, power & cooling, networking/interconnect, servers, hyperscale supply chain.
+    keyword_stems: [datacenter, data center, hyperscale, cloud infrastructure, ai infrastructure, networking, interconnect, cooling, power, server]
+    exemplars: [VRT, SMCI, ANET, DELL, CIEN, CRDO]
+
+  - e_code: E-SAAS
+    name: Enterprise software
+    description: Application & platform software (non-security) — observability/AIOps, data/analytics, database, dev tools, workflow SaaS.
+    keyword_stems: [software, saas, application, platform, observability, aiops, monitoring, analytics, database, developer, workflow]
+    exemplars: [DDOG, SNOW, CRM, MDB, NOW, TEAM]
+
+  - e_code: E-BIO
+    name: Biotech & therapeutics
+    description: Drug developers — oncology, gene/cell therapy, genomics, metabolic/peptide, mRNA, protein degradation.
+    keyword_stems: [biotech, therapeutic, drug, oncology, gene, genomic, cell therapy, peptide, mrna, antibody, protein]
+    exemplars: [VKTX, CRSP, RXRX]
+
+  - e_code: E-MEDTECH
+    name: Devices & diagnostics
+    description: Medical devices, diagnostics & testing — liquid biopsy, companion Dx, surgical, imaging.
+    keyword_stems: [device, diagnostic, medtech, biopsy, testing, companion, surgical, imaging, wearable]
+    exemplars: [GH, EXAS, TMDX]
+
+  - e_code: E-INS
+    name: Insurance
+    description: Insurers & insurance platforms — P&C, life, reinsurance, digital insurance marketplaces.
+    keyword_stems: [insurance, insurer, reinsurance, underwriting, "p&c", life insurance, annuity]
+    exemplars: [ROOT, LMND, HIG]
+
+  - e_code: E-BANKFIN
+    name: Banks / fintech / brokers
+    description: Banks, brokers, payments, lending, consumer fintech & digital credit.
+    keyword_stems: [bank, fintech, lending, credit, broker, brokerage, payment, financial, neobank]
+    exemplars: [SOFI, COIN, HOOD, AFRM]
+
+  - e_code: E-REIT
+    name: Real estate / REITs
+    description: REITs & real estate — property, homebuilders, construction, mortgage.
+    keyword_stems: [reit, real estate, property, homebuilder, home construction, mortgage, landlord]
+    exemplars: [PLD, DHI, LEN]
+
+  - e_code: E-ENER
+    name: Energy
+    description: Oil & gas (E&P, refining/downstream, LNG, drilling), plus solar/renewables & uranium.
+    keyword_stems: [oil, gas, energy, refining, downstream, drilling, lng, solar, renewable, uranium, petroleum]
+    exemplars: [XOM, FSLR, CCJ]
+
+  - e_code: E-METAL
+    name: Metals & mining
+    description: Precious & industrial metals — gold/silver miners, copper, steel, materials, royalty/streaming.
+    keyword_stems: [gold, silver, copper, steel, mining, miner, metal, material, royalty, streaming, precious]
+    exemplars: [NEM, AG, CLF]
+
+  - e_code: E-DEF
+    name: Defense & space
+    description: Defense primes & suppliers, aerospace, space/satellites, military systems.
+    keyword_stems: [defense, aerospace, space, satellite, military, missile, munition]
+    exemplars: [LMT, RKLB, LHX]
+
+  - e_code: E-TRANS
+    name: Transport & logistics
+    description: Airlines, rail, trucking, shipping, freight & logistics.
+    keyword_stems: [airline, transport, rail, trucking, shipping, freight, logistics, cargo]
+    exemplars: [DAL, UNP, ODFL]
+
+  - e_code: E-CONS
+    name: Consumer / retail / dining
+    description: Consumer discretionary — retail, restaurants/dining, apparel, brands, e-commerce.
+    keyword_stems: [retail, consumer, restaurant, dining, apparel, brand, e-commerce, footwear, leisure]
+    exemplars: [CMG, DKNG, ELF]
+
+  - e_code: E-INDL
+    name: Industrials / power
+    description: Industrials & electrification — machinery, electrical, grid, power/utilities, infrastructure, manufacturing.
+    keyword_stems: [industrial, machinery, electrical, grid, power, utility, infrastructure, manufacturing, engineering]
+    exemplars: [ETN, GEV, PWR]
+
+  - e_code: E-CRYPTO
+    name: Crypto infrastructure
+    description: Crypto equities — bitcoin treasuries/holders, miners, exchanges, blockchain infra, stablecoins.
+    keyword_stems: [crypto, bitcoin, blockchain, digital asset, stablecoin, exchange, mining]
+    exemplars: [MSTR, MARA, RIOT]
+
+  - e_code: E-COMM
+    name: Communications & media
+    description: Media, advertising/adtech, social, streaming, and telecom carriers.
+    keyword_stems: [media, advertising, adtech, social, streaming, telecom, carrier, communication, broadcast, wireless]
+    exemplars: [TTD, RDDT, T]
+
+  - e_code: E-HLTH
+    name: Healthcare services
+    description: Healthcare delivery & services — providers, hospitals, managed care, staffing, pharmacy services.
+    keyword_stems: [healthcare, provider, hospital, managed care, staffing, pharmacy, clinic, services]
+    exemplars: [UNH, HCA, THC]
+
+  - e_code: E-QUANTUM
+    name: Quantum computing
+    description: Quantum computing & enabling hardware/software — an emerging distinct compute narrative.
+    keyword_stems: [quantum, qubit]
+    exemplars: [IONQ, RGTI, QBTS, QUBT]
+
+  - e_code: E-ROBOT
+    name: Robotics & automation
+    description: Robotics, industrial/humanoid automation, autonomous systems & drones.
+    keyword_stems: [robot, robotics, automation, humanoid, autonomous, drone]
+    exemplars: [SERV, RR, ARBE]
+
+  # Reserved — the discovery substrate. Themes that map to no bucket land here;
+  # the weekly discovery pass clusters them into candidate new ecosystems (Phase 3).
+  - e_code: E-UNASSIGNED
+    name: Unassigned
+    description: Reserved — holding lane for themes not yet mapped to a primary ecosystem; input to the new-ecosystem discovery pass.
+    keyword_stems: []
+    exemplars: []
