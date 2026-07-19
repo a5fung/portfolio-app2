@@ -16,6 +16,15 @@ rendering layer is a fresh Streamlit-native build.
 
 Data comes from theme_data.get_ecosystem_board(), which reuses the ported
 scorer over the committed snapshot (apollo_themes_snapshot.json).
+
+2026-07-19 follow-up (operator feedback): the two-level board lost the flat
+Grid view's week-over-week visibility, so each sub-theme line now also
+carries a COMPACT movement cell (sparkline + window Δ, `_movement_html`
+below) — a basic strengthening/weakening read, not a re-implementation of
+the Grid's full weekly heatmap (theme_grid.py is UNCHANGED and stays the
+place for that). Movement data comes from theme_data's reuse of
+get_weekly_grid + ecosystem_score.compute_theme_movement (new, not ported —
+see that module's docstring).
 """
 from __future__ import annotations
 
@@ -35,6 +44,57 @@ _STAGE_EMOJI = {
 }
 
 _DEFAULT_EXPANDED = 3   # top-N ranked ecosystems auto-expanded; rest collapsed
+
+# 8-level unicode block sparkline — a BASIC directional read (not the Grid's
+# full heatmap), normalized per-theme (min->max of its own recent points).
+_SPARK_CHARS = "▁▂▃▄▅▆▇█"
+_MOVE_UP = "#3fb950"      # green — strengthening (RS rising)
+_MOVE_DOWN = "#f85149"    # red — weakening
+_MOVE_FLAT = "#8b949e"    # grey — flat / no usable trend
+
+
+def _sparkline(points: list[float]) -> str:
+    """Map a short list of values onto an 8-level unicode block string,
+    normalized to THIS theme's own min/max (a per-row sparkline, not a
+    cross-theme-comparable scale). <2 points -> "" (caller degrades to "—")."""
+    if len(points) < 2:
+        return ""
+    lo, hi = min(points), max(points)
+    if hi == lo:
+        mid = _SPARK_CHARS[len(_SPARK_CHARS) // 2]
+        return mid * len(points)
+    span = hi - lo
+    n = len(_SPARK_CHARS) - 1
+    chars = []
+    for v in points:
+        idx = int(round((v - lo) / span * n))
+        idx = max(0, min(n, idx))
+        chars.append(_SPARK_CHARS[idx])
+    return "".join(chars)
+
+
+def _movement_html(movement: dict | None) -> str:
+    """Compact W/W movement cell (#472 follow-up, operator ask 2026-07-19):
+    an 8-level sparkline of the recent weekly rs_avg points + a window Δ,
+    green when strengthening / red when weakening. Themes with <2 usable
+    weekly points (too new for a trend) degrade to a dim "—" — never crashes
+    on sparse data. This is a BASIC directional signal; the full weekly
+    heatmap is theme_grid.py's job (Grid view, unchanged)."""
+    if not movement or movement.get("n", 0) < 2:
+        return '<span style="opacity:0.55">—</span>'
+    points = movement["points"]
+    delta = movement["delta"]
+    spark = _sparkline(points)
+    if delta > 0:
+        color, arrow = _MOVE_UP, "↑"
+    elif delta < 0:
+        color, arrow = _MOVE_DOWN, "↓"
+    else:
+        color, arrow = _MOVE_FLAT, "—"
+    return (
+        f'<span style="font-family:monospace,monospace">{spark}</span> '
+        f'<span style="color:{color};font-weight:600">{arrow}{abs(delta):.1f}</span>'
+    )
 
 
 def _render_theme_line(st_dict: dict, rank: int | None, preview: str) -> None:
@@ -59,10 +119,11 @@ def _render_theme_line(st_dict: dict, rank: int | None, preview: str) -> None:
     drill = quote(name, safe="")
     name_esc = _html.escape(name)
     stage_esc = _html.escape(stage)
+    movement_html = _movement_html(st_dict.get("movement"))
     st.markdown(
         f'{rank_str}{emoji} <a href="?drill={drill}" target="_self">'
         f'<b>{name_esc}</b></a> <i>[{stage_esc}]</i>  '
-        f'RS {st_dict["comp"]:.0f}{delta_str}',
+        f'RS {st_dict["comp"]:.0f}{delta_str}  {movement_html}',
         unsafe_allow_html=True,
     )
     if preview:
@@ -176,5 +237,8 @@ def render_ecosystems() -> None:
         "💡 Ecosystem rank = boosted D3 score. Sub-themes keep their GLOBAL "
         "rank across ALL active themes (not a per-ecosystem rank) — an "
         "ecosystem can outrank another while its top sub-theme ranks lower "
-        "globally than a sub-theme in the ecosystem below it."
+        "globally than a sub-theme in the ecosystem below it. The sparkline "
+        "+ Δ next to each theme is its recent weekly rs_avg trend (green "
+        "↑ = strengthening, red ↓ = weakening, — = too new for a trend) — "
+        "for the FULL weekly heatmap, switch to the Grid view."
     )

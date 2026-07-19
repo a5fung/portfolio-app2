@@ -235,7 +235,7 @@ def get_top_members_by_rs(theme_tickers: dict[str, tuple[str, ...]], n: int = 4)
 
 
 @st.cache_data(ttl=300)
-def get_ecosystem_board(stale_after_days: int = 7) -> dict:
+def get_ecosystem_board(stale_after_days: int = 7, movement_weeks: int = 6) -> dict:
     """ADR 0032 two-level board data: ecosystems ranked by the D3 boosted
     score, each with its member sub-themes carrying a global theme rank —
     the SAME grouping/scoring path as the Telegram `/themes` v2 board
@@ -250,6 +250,16 @@ def get_ecosystem_board(stale_after_days: int = 7) -> dict:
     `delta` compares against the most recent PRIOR theme_date's stored
     `rs_avg` — one global prior date, mirroring Apollo's
     `get_prior_theme_scores` (not a per-theme lookback).
+
+    Each active theme also carries a "movement" signal (2026-07-19 operator
+    follow-up — the Ecosystems view otherwise loses the Grid's W/W
+    visibility): the last `movement_weeks` ISO weeks of that theme's stored
+    weekly rs_avg, REUSING get_weekly_grid (the exact series theme_grid.py's
+    full heatmap already computes — not recomputed/reinvented here) via
+    `ecosystem_score.compute_theme_movement`. One extra get_weekly_grid call
+    total, joined by name — themes with <2 usable weekly points (too new)
+    get "movement": {"delta": None, "n": <2, ...}, which the Streamlit view
+    degrades to "—" rather than crashing.
 
     Returns {} when there's no theme with at least one scored member in the
     window (degenerate/empty-snapshot case — caller falls back to the flat
@@ -266,10 +276,14 @@ def get_ecosystem_board(stale_after_days: int = 7) -> dict:
         "eco_display": {e_code: {"e_code","name"}},  # taxonomy display names
         "latest_date": date,
       }
-    scored_theme_dict = {"name","stage","comp","delta","tickers","n_scored"}
-    (delta is None when no prior-day rs_avg exists for that theme).
+    scored_theme_dict = {"name","stage","comp","delta","tickers","n_scored",
+    "movement"} (delta is None when no prior-day rs_avg exists for that
+    theme; movement is the dict described above).
     """
-    from ecosystem_score import E_UNASSIGNED, _group_and_rank_ecosystems, get_ecosystem_map, trimmed_mean
+    from ecosystem_score import (
+        E_UNASSIGNED, _group_and_rank_ecosystems, compute_theme_movement,
+        get_ecosystem_map, trimmed_mean,
+    )
 
     d = _load()
     df = d["themes"]
@@ -302,6 +316,16 @@ def get_ecosystem_board(stale_after_days: int = 7) -> dict:
         prior_rows = df[df["theme_date"] == prior_date]
         prior_rs_avg = dict(zip(prior_rows["name"], prior_rows["rs_avg"]))
 
+    # Movement signal — REUSE get_weekly_grid (the same weekly series
+    # theme_grid.py's heatmap renders), not a second recomputation. A small
+    # buffer beyond movement_weeks absorbs partial/boundary ISO weeks;
+    # compute_theme_movement caps to the last `movement_weeks` usable points.
+    weekly = get_weekly_grid(weeks=movement_weeks + 2)
+    weekly_points_by_name: dict[str, list[tuple]] = {}
+    if not weekly.empty:
+        for wname, grp in weekly.groupby("name"):
+            weekly_points_by_name[wname] = list(zip(grp["week_start"], grp["rs_avg"]))
+
     eco_map: dict[str, str] = {}
     scored_themes: list[dict] = []
     fading: list[dict] = []
@@ -324,9 +348,11 @@ def get_ecosystem_board(stale_after_days: int = 7) -> dict:
         comp = trimmed_mean(comps)
         prior = prior_rs_avg.get(name)
         delta = (comp - prior) if (prior is not None and pd.notna(prior)) else None
+        movement = compute_theme_movement(
+            weekly_points_by_name.get(name, []), max_weeks=movement_weeks)
         scored_themes.append({
             "name": name, "stage": row["stage"], "comp": comp, "delta": delta,
-            "tickers": tickers, "n_scored": len(comps),
+            "tickers": tickers, "n_scored": len(comps), "movement": movement,
         })
 
     if not scored_themes and not fading:

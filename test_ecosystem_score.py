@@ -38,6 +38,7 @@ import pytest
 from ecosystem_score import (
     E_UNASSIGNED,
     compute_ecosystem_scores,
+    compute_theme_movement,
     get_ecosystem_codes,
     get_ecosystem_map,
     get_ecosystems,
@@ -264,6 +265,85 @@ class TestGroupAndRankEcosystems:
         s = grouped["scores"][E_UNASSIGNED]
         assert s["strong"] >= 5
         assert s["boost"] > 0.0
+
+
+# ── compute_theme_movement (2026-07-19 operator follow-up — NOT ported, see
+#    ecosystem_score.py's module docstring) ──────────────────────────────────
+
+class TestComputeThemeMovement:
+    def test_strengthening_theme_multi_week(self):
+        # 6 ISO weeks, rs_avg rising monotonically -> positive delta, full
+        # 6-point sparkline series, no truncation needed (exactly max_weeks).
+        weekly_points = [
+            ("2026-06-01", 60.0), ("2026-06-08", 65.0), ("2026-06-15", 70.0),
+            ("2026-06-22", 78.0), ("2026-06-29", 85.0), ("2026-07-06", 92.0),
+        ]
+        m = compute_theme_movement(weekly_points, max_weeks=6)
+        assert m["n"] == 6
+        assert m["points"] == [60.0, 65.0, 70.0, 78.0, 85.0, 92.0]
+        assert m["delta"] == pytest.approx(92.0 - 60.0)   # +32.0, strengthening
+
+    def test_caps_to_max_weeks_keeping_most_recent(self):
+        # 8 weeks of data, max_weeks=6 -> only the most recent 6 are kept
+        # (oldest two, 40 and 45, dropped) and delta is measured over THAT
+        # trimmed window, not the full 8-week history.
+        weekly_points = [
+            ("2026-05-18", 40.0), ("2026-05-25", 45.0),
+            ("2026-06-01", 60.0), ("2026-06-08", 65.0), ("2026-06-15", 70.0),
+            ("2026-06-22", 78.0), ("2026-06-29", 85.0), ("2026-07-06", 92.0),
+        ]
+        m = compute_theme_movement(weekly_points, max_weeks=6)
+        assert m["n"] == 6
+        assert m["points"][0] == 60.0     # the 40.0/45.0 weeks are dropped
+        assert m["delta"] == pytest.approx(92.0 - 60.0)
+
+    def test_weakening_theme_negative_delta(self):
+        weekly_points = [
+            ("2026-06-01", 90.0), ("2026-06-08", 80.0),
+            ("2026-06-15", 70.0), ("2026-06-22", 55.0),
+        ]
+        m = compute_theme_movement(weekly_points, max_weeks=6)
+        assert m["delta"] == pytest.approx(55.0 - 90.0)   # -35.0, weakening
+        assert m["delta"] < 0
+
+    def test_unsorted_input_is_sorted_by_week(self):
+        # Caller (theme_data) doesn't guarantee week order -- must not matter.
+        weekly_points = [
+            ("2026-06-15", 70.0), ("2026-06-01", 60.0), ("2026-06-08", 65.0),
+        ]
+        m = compute_theme_movement(weekly_points, max_weeks=6)
+        assert m["points"] == [60.0, 65.0, 70.0]
+
+    def test_too_new_theme_degrades_to_no_delta(self):
+        # A single-week theme (just born) must NOT crash -- delta is None
+        # and n<2, which is what the Streamlit view actually gates on to
+        # render "—" instead of a sparkline (a lone point is harmless to
+        # keep in `points`; the view never looks at it once n<2).
+        m = compute_theme_movement([("2026-07-13", 55.0)], max_weeks=6)
+        assert m["n"] < 2
+        assert m["delta"] is None
+        assert m["points"] == [55.0]
+
+    def test_empty_input_never_crashes(self):
+        m = compute_theme_movement([], max_weeks=6)
+        assert m == {"points": [], "delta": None, "n": 0}
+
+    def test_none_and_nan_points_are_dropped_not_zeroed(self):
+        weekly_points = [
+            ("2026-06-01", 60.0), ("2026-06-08", None), ("2026-06-15", float("nan")),
+            ("2026-06-22", 70.0),
+        ]
+        m = compute_theme_movement(weekly_points, max_weeks=6)
+        assert m["n"] == 2               # only the two real points count
+        assert m["points"] == [60.0, 70.0]
+        assert m["delta"] == pytest.approx(10.0)
+
+    def test_flat_series_zero_delta(self):
+        m = compute_theme_movement(
+            [("2026-06-01", 75.0), ("2026-06-08", 75.0), ("2026-06-15", 75.0)],
+            max_weeks=6,
+        )
+        assert m["delta"] == 0.0
 
 
 if __name__ == "__main__":

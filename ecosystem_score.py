@@ -40,6 +40,15 @@ static ~20-row taxonomy is not worth the install-risk. A verbatim copy of
 `theme_ecosystems.yaml` is ALSO kept in this repo (theme_ecosystems.yaml) as
 a human-diffable reference against Apollo's copy; it is not read by any code
 here. If the taxonomy changes upstream, update BOTH by hand.
+
+NEW (NOT ported — this signal doesn't exist in Apollo/Telegram at all):
+  - `compute_theme_movement` — a compact W/W "is this theme strengthening or
+    weakening" signal, added 2026-07-19 after operator feedback that the
+    two-level Ecosystems view lost the week-over-week visibility the flat
+    Grid view (theme_grid.py, UNCHANGED, still the full weekly heatmap)
+    provides. Deliberately basic (a handful of recent weekly points + a
+    window delta) — NOT a re-implementation of the Grid, just enough signal
+    to read directionally inside the compact one-line-per-theme layout.
 """
 from __future__ import annotations
 
@@ -285,3 +294,50 @@ def _group_and_rank_ecosystems(
         return (0, -s.get("boosted", 0.0), tax_order.get(code, 999), code)
 
     return sorted(eco_to_all, key=_sort_key), active_by_eco, fading_by_eco, scores
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Compact per-theme W/W movement signal — NEW, NOT ported (see module
+# docstring). Operator ask 2026-07-19: the Ecosystems view lost the Grid's
+# week-over-week visibility; this restores a BASIC directional read without
+# re-implementing the Grid's full weekly heatmap.
+# ═════════════════════════════════════════════════════════════════════════
+
+def _is_nan(v: Any) -> bool:
+    """True for float('nan') / pandas NaN, without importing math/numpy —
+    NaN is the only value in Python for which `v != v` is True."""
+    try:
+        return v != v
+    except Exception:
+        return False
+
+
+def compute_theme_movement(
+    weekly_points: list[tuple[Any, float | None]],
+    *,
+    max_weeks: int = 6,
+) -> dict:
+    """Compact W/W movement signal for ONE theme's weekly rs_avg series. PURE:
+    no I/O, no pandas/streamlit dependency (caller extracts plain tuples from
+    theme_data.get_weekly_grid — see that module for the join).
+
+    weekly_points: [(week_start, rs_avg), ...], one entry per ISO week, in ANY
+    order (this function sorts by week_start ascending). rs_avg may be None
+    or NaN — those weeks are dropped, not treated as zero. Only the most
+    recent `max_weeks` USABLE weeks are kept (oldest -> newest).
+
+    Returns {"points": [rs_avg, ...] chronological oldest->newest (len <=
+    max_weeks), "delta": points[-1]-points[0], "n": len(points)}. A theme
+    with fewer than 2 usable weekly points (too new for a trend, or a data
+    gap) gets delta=None / n<2 (points may still hold a single lone value —
+    callers gate on `n < 2`, not on `points` being empty) — the caller
+    renders "—" instead of a sparkline; this function never raises on
+    sparse/empty input.
+    """
+    usable = [(wk, v) for wk, v in (weekly_points or [])
+              if v is not None and not _is_nan(v)]
+    usable.sort(key=lambda p: p[0])
+    usable = usable[-max_weeks:] if max_weeks > 0 else usable
+    points = [float(v) for _, v in usable]
+    delta = (points[-1] - points[0]) if len(points) >= 2 else None
+    return {"points": points, "delta": delta, "n": len(points)}
