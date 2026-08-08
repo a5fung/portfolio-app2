@@ -81,9 +81,12 @@ if _q:
 
 # ── View router (ported from rs-theme-dash/ThemeDash.py) ─────────────────────
 # #472 (ADR 0032): "Ecosystems" is the new two-level board and the default
-# landing view (parity with the Telegram `/themes` default), but the flat
+# landing view (parity with the Telegram /themes default), but the flat
 # "Grid"/"Detail" views stay fully intact and one click away — nothing removed.
-_VIEWS = ["Ecosystems", "Grid", "Detail"]
+# #315: "Bump Chart" (R2) and "Forward Returns" (R4) are NEW views keyed on
+# canonical identity (R3, theme_canon.py) — Grid/Ecosystems/Detail above are
+# UNCHANGED and stay on raw theme `name` (they match the Telegram board).
+_VIEWS = ["Ecosystems", "Grid", "Detail", "Bump Chart", "Forward Returns"]
 if "view" not in st.session_state:
     st.session_state["view"] = "Ecosystems"
 
@@ -111,5 +114,21 @@ if view == "Ecosystems":
         render_grid()
 elif view == "Grid":
     render_grid()
-else:
+elif view == "Detail":
     render_detail()
+elif view == "Bump Chart":
+    try:
+        from theme_bump import render_bump  # lazy: isolate any load failure to this tab
+        render_bump()
+    except Exception as _bump_err:
+        st.error("⚠ Bump chart failed to load — the error is shown below; the Grid view still works.")
+        st.exception(_bump_err)
+        render_grid()
+else:  # "Forward Returns"
+    try:
+        from theme_forward import render_forward  # lazy: isolate any load failure to this tab
+        render_forward()
+    except Exception as _fwd_err:
+        st.error("⚠ Forward-returns view failed to load — the error is shown below; the Grid view still works.")
+        st.exception(_fwd_err)
+        render_grid()

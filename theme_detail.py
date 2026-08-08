@@ -239,6 +239,10 @@ def render_detail() -> None:
 
     st.divider()
     st.caption(
-        "**V5 placeholder:** Median member return since entering Top 10 — N/A until "
-        "forward-return outcomes are wired (`mi_signal_outcomes` join)."
+        "**Forward performance:** a real $/％ return since entering Top 10 still "
+        "needs a per-ticker historical price join (`mi_signal_outcomes`) this "
+        "snapshot doesn't carry. In the meantime, see the **Forward Returns** "
+        "view (sidebar) for the closest honest proxy — forward change in this "
+        "theme's own RS score after it first surfaced, shown against a "
+        "baseline so it isn't misread as a real return (#315)."
     )

@@ -515,3 +515,244 @@ def get_theme_members(name: str, stale_after_days: int = 7) -> list[str]:
     if live.empty:
         return []
     return list(live.sort_values("theme_date").iloc[-1]["tickers"] or [])
+
+
+# ── Canonical identity (#315 R3/R2/R4) ───────────────────────────────────────
+# The theme engine re-mints each theme's NAME nightly (an LLM description), so
+# the SAME underlying ticker cohort appears under a different string day to
+# day. Everything above this line is UNCHANGED and stays keyed on raw `name`
+# (Grid, Ecosystems, Detail — these intentionally match the Telegram board's
+# grouping; #315 does not touch them). The functions below attach a stable
+# CANONICAL identity (theme_canon.py — ticker-set-driven, see that module's
+# docstring for the algorithm and the real counter-examples that set its
+# thresholds) and are consumed only by the new bump-chart / forward-study
+# views.
+
+
+@st.cache_data(ttl=300)
+def get_canonical_themes() -> pd.DataFrame:
+    """Full theme history with `canonical_id` / `canonical_name` attached.
+
+    Always canonicalizes the FULL history, not a windowed slice — identity
+    threading needs the whole timeline (windowing first would sever a cohort
+    right at the window edge). Callers window the RESULT
+    (get_canonical_weekly_grid does this)."""
+    d = _load()
+    df = d["themes"]
+    if df.empty:
+        return df
+    from theme_canon import canonicalize_themes   # lazy: mirrors ecosystem_score's pattern above
+    return canonicalize_themes(df)
+
+
+def _canonical_weekly_universe(window: pd.DataFrame) -> pd.DataFrame:
+    """Same shape as `_weekly_universe` above, but DISTINCT ON
+    (canonical_id, week) instead of (name, week), and week_rank recomputed
+    over the CANONICAL population. A canonical rank will NOT always match
+    the raw Grid's rank for the same calendar week — merging same-cohort
+    name-variants shrinks that week's row count by design (mirrors
+    theme_grid.py's own "recompute over survivors when dedup is on"
+    precedent). The Grid/Ecosystems views are unaffected; this is a separate
+    read."""
+    w = window.copy()
+    w["week_start"] = _week_start(w["theme_date"])
+    w = w.sort_values(["canonical_id", "week_start", "theme_date"]).drop_duplicates(
+        ["canonical_id", "week_start"], keep="last"
+    )
+    w["week_rank"] = w.groupby("week_start")["rs_avg"].rank(
+        method="min", ascending=False, na_option="keep"
+    )
+    w["week_universe"] = w.groupby("week_start")["rs_avg"].transform(
+        lambda s: int(s.notna().sum())
+    )
+    return w
+
+
+@st.cache_data(ttl=300)
+def get_canonical_weekly_grid(weeks: int = 24) -> pd.DataFrame:
+    """Weekly rank grid keyed by CANONICAL identity — the R2 bump chart's
+    data source (and R4's forward-study source, via a wide `weeks`).
+
+    `weeks` windows the OUTPUT only (see get_canonical_themes). Anchored on
+    the snapshot's own latest `theme_date`, NOT wall-clock `date.today()` —
+    this snapshot is a nightly export and is routinely a day (or a weekend)
+    behind; anchoring on today() would silently return an empty window on
+    export lag rather than the most recent data actually on file."""
+    canon = get_canonical_themes()
+    if canon.empty:
+        return pd.DataFrame()
+    latest_date = canon["theme_date"].max()
+    cutoff = latest_date - timedelta(weeks=weeks)
+    window = canon[canon["theme_date"] >= cutoff]
+    if window.empty:
+        return pd.DataFrame()
+    grid = _canonical_weekly_universe(window).rename(columns={"theme_date": "as_of_date"})
+    return grid.sort_values(
+        ["week_start", "week_rank"], na_position="last"
+    ).reset_index(drop=True)
+
+
+@st.cache_data(ttl=300)
+def get_forward_rs_movement(
+    surface_rank: int = 10,
+    baseline_lo: int = 11,
+    baseline_hi: int = 30,
+    forward_weeks: tuple[int, ...] = (1, 4),
+) -> dict:
+    """#315 R4 — "what happened after a theme surfaced", in RS-score terms.
+
+    NOT a price return, and this function's caller MUST say so wherever it
+    renders: `stock_scores` is a single cross-section for one `score_date`
+    (no historical per-ticker close series — see theme_detail.py's V5
+    placeholder, which real forward $/％ returns still require via a future
+    `mi_signal_outcomes` join). `rs_avg` — each theme's own trimmed-mean
+    relative-strength composite, tracked weekly — is the closest honest
+    proxy available in this snapshot. This reports the CHANGE in that score
+    (and in rank) after a cohort first enters a rank band; it is a
+    directional read on the RS engine's own output, not a substitute for a
+    realized return.
+
+    Selection-effect guard: `rs_avg` is a 0-100 percentile composite, so
+    conditioning on "just entered the top N" selects on an already-high
+    score, which mean-reverts by construction — a bare median forward delta
+    for that group alone would misread as "the board picks badly" when it is
+    partly a statistical artifact of the selection itself. Every event is
+    therefore computed for BOTH the "surfaced" band (rank <= surface_rank)
+    and a "baseline" band (baseline_lo <= rank <= baseline_hi), so callers
+    compare the two instead of reading either bare.
+
+    **The two bands are a genuine control group, not the same cohorts
+    measured twice.** A cohort that EVER reaches the surfaced band (at any
+    point in its recorded history, before or after) is excluded from the
+    baseline band entirely — baseline is "reached rank 11-30 and, as far as
+    this snapshot has seen, never made the top N", surfaced is "made the top
+    N". Measured on the real snapshot: without this exclusion, 40% of
+    baseline-band cohorts were also surfaced-band cohorts (same theme,
+    counted in both groups from two different weeks of its own life) —
+    that's a within-cohort comparison wearing a between-group label, and the
+    fix is this exclusion, not different math.
+
+    Per canonical cohort: "surfaced" = the FIRST week (chronologically) its
+    week_rank fell into a given band. The forward point at horizon N is that
+    cohort's Nth SUBSEQUENT recorded weekly point in ITS OWN sequence (not a
+    calendar lookup) — a cohort with fewer than N subsequent points has no
+    observation at that horizon yet and is excluded. Never interpolated or
+    fabricated (#315 instruction). Note some "surfaced" events are a brand
+    new cohort's FIRST-ever recorded week already landing in the top N (no
+    "climbing" to observe, just a strong debut) rather than a promotion from
+    lower down — `debut_share` in the return reports how common that is so
+    callers can disclose it rather than imply every event is a climb.
+
+    Returns {"events": DataFrame, "summary": DataFrame, "weeks_available": int,
+      "debut_share": float | None}.
+      events: canonical_id, canonical_name, band, surfaced_week,
+        rank_at_surfaced, rs_avg_at_surfaced, is_debut (bool — surfaced_week
+        is the cohort's first recorded week at all), and per N in
+        forward_weeks: rank_fwd_{N}w, rs_avg_fwd_{N}w, delta_rank_{N}w
+        (negative = rank improved — a SMALLER rank number), delta_rs_{N}w.
+      summary: band, horizon_weeks, n, median_delta_rank, median_delta_rs,
+        pct_rank_improved (share of `n` with delta_rank < 0).
+      weeks_available: distinct ISO weeks in the canonical grid — the honest
+      depth ceiling; callers must show this, not silently truncate.
+      debut_share: of surfaced_top events, the share where is_debut is True
+      (None if there are no surfaced_top events).
+    """
+    # weeks=520 (10 years) is a "give me everything on file" sentinel — the
+    # real ceiling is however much history the snapshot actually holds.
+    grid = get_canonical_weekly_grid(weeks=520)
+    empty = {
+        "events": pd.DataFrame(), "summary": pd.DataFrame(),
+        "weeks_available": 0, "debut_share": None,
+    }
+    if grid.empty:
+        return empty
+
+    weeks_available = int(grid["week_start"].nunique())
+    names_of = grid.drop_duplicates("canonical_id").set_index("canonical_id")["canonical_name"]
+
+    def _first_entry(seq: pd.DataFrame, lo: int, hi: int):
+        mask = seq["week_rank"].between(lo, hi)
+        return mask.idxmax() if mask.any() else None
+
+    def _ever_in_band(seq: pd.DataFrame, lo: int, hi: int) -> bool:
+        return bool(seq["week_rank"].between(lo, hi).any())
+
+    rows = []
+    for cid, g in grid.groupby("canonical_id"):
+        seq = g.sort_values("week_start")[["week_start", "week_rank", "rs_avg"]].reset_index(drop=True)
+
+        # Control-group exclusion (see docstring): a cohort that EVER reaches
+        # the surfaced band anywhere in its history is not eligible for the
+        # baseline band, at any of its baseline-band weeks — otherwise the
+        # same cohort contributes to both groups and "baseline" stops being
+        # a comparison population.
+        ever_surfaced = _ever_in_band(seq, 1, surface_rank)
+        band_defs = [("surfaced_top", 1, surface_rank)]
+        if not ever_surfaced:
+            band_defs.append(("baseline", baseline_lo, baseline_hi))
+
+        for band_label, lo, hi in band_defs:
+            idx = _first_entry(seq, lo, hi)
+            if idx is None:
+                continue
+            row = {
+                "canonical_id": cid,
+                "canonical_name": names_of.get(cid, cid),
+                "band": band_label,
+                "surfaced_week": seq.at[idx, "week_start"],
+                "rank_at_surfaced": seq.at[idx, "week_rank"],
+                "rs_avg_at_surfaced": seq.at[idx, "rs_avg"],
+                "is_debut": idx == 0,   # first-ever recorded week already in-band — a strong debut, not a climb
+            }
+            for n in forward_weeks:
+                fwd_idx = idx + n
+                have_fwd = fwd_idx < len(seq)
+                row[f"rank_fwd_{n}w"] = seq.at[fwd_idx, "week_rank"] if have_fwd else None
+                row[f"rs_avg_fwd_{n}w"] = seq.at[fwd_idx, "rs_avg"] if have_fwd else None
+                row[f"delta_rank_{n}w"] = (
+                    seq.at[fwd_idx, "week_rank"] - seq.at[idx, "week_rank"] if have_fwd else None
+                )
+                row[f"delta_rs_{n}w"] = (
+                    seq.at[fwd_idx, "rs_avg"] - seq.at[idx, "rs_avg"] if have_fwd else None
+                )
+            rows.append(row)
+
+    events = pd.DataFrame(rows)
+    if events.empty:
+        return {
+            "events": events, "summary": pd.DataFrame(),
+            "weeks_available": weeks_available, "debut_share": None,
+        }
+
+    surfaced_events = events[events["band"] == "surfaced_top"]
+    debut_share = (
+        float(surfaced_events["is_debut"].mean()) if not surfaced_events.empty else None
+    )
+
+    bands = [("surfaced_top", 1, surface_rank), ("baseline", baseline_lo, baseline_hi)]
+
+    summary_rows = []
+    for band_label, _, _ in bands:
+        band_events = events[events["band"] == band_label]
+        for n in forward_weeks:
+            usable = band_events.dropna(subset=[f"delta_rank_{n}w"])
+            if usable.empty:
+                summary_rows.append({
+                    "band": band_label, "horizon_weeks": n, "n": 0,
+                    "median_delta_rank": None, "median_delta_rs": None,
+                    "pct_rank_improved": None,
+                })
+                continue
+            summary_rows.append({
+                "band": band_label,
+                "horizon_weeks": n,
+                "n": len(usable),
+                "median_delta_rank": float(usable[f"delta_rank_{n}w"].median()),
+                "median_delta_rs": float(usable[f"delta_rs_{n}w"].median()),
+                "pct_rank_improved": float((usable[f"delta_rank_{n}w"] < 0).mean() * 100),
+            })
+
+    return {
+        "events": events, "summary": pd.DataFrame(summary_rows),
+        "weeks_available": weeks_available, "debut_share": debut_share,
+    }
