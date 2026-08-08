@@ -18,7 +18,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 _PAGE = "pages/Apollo_Themes.py"
-_VIEWS = ["Ecosystems", "Grid", "Detail", "Rank Flow", "Rank Heatmap", "Bump Chart", "Forward Returns"]
+_VIEWS = ["Ecosystems", "Grid", "Detail", "Rank Flow", "Bump Chart", "Forward Returns"]
 
 
 @pytest.mark.parametrize("view", _VIEWS)
@@ -50,15 +50,6 @@ def test_rank_flow_plots_a_sankey():
     assert not at.exception
     assert at.get("plotly_chart"), "Rank Flow rendered no plotly_chart element"
 
-
-def test_rank_heatmap_shows_real_rows():
-    at = AppTest.from_file(_PAGE, default_timeout=90)
-    at.run()
-    at.sidebar.radio[0].set_value("Rank Heatmap").run()
-    assert not at.exception
-    # Rendered as a raw HTML table (matches theme_grid.py's own pattern), so
-    # look for the markdown block that carries it rather than st.dataframe.
-    assert any("<table" in m.value for m in at.markdown), "Rank Heatmap rendered no table"
 
 
 def test_forward_returns_shows_real_numbers():

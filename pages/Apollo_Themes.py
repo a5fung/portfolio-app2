@@ -87,10 +87,18 @@ if _q:
 # canonical identity (R3, theme_canon.py) — Grid/Ecosystems/Detail above are
 # UNCHANGED and stay on raw theme `name` (they match the Telegram board).
 # 2026-08-08 (operator: bump chart "not easiest to read... like Sankey"):
-# "Rank Flow" (alluvial) and "Rank Heatmap" (canonical) are NEW views, same
-# canonical data source as Bump Chart — Bump Chart itself stays (operator
-# called it "ok", not wrong; nothing removed here either).
-_VIEWS = ["Ecosystems", "Grid", "Detail", "Rank Flow", "Rank Heatmap", "Bump Chart", "Forward Returns"]
+# "Rank Flow" (alluvial) is a NEW view on the same canonical data source as
+# Bump Chart — Bump Chart itself stays (operator called it "ok", not wrong).
+# A "Rank Heatmap" tab shipped alongside it and was PULLED the same evening:
+# the operator asked "heatmap is the exact same as grid?" and he was right —
+# measured, it rendered 294 rows against Grid's 306, with only 23 of 311
+# cohorts merging anything at all. ~93% of it was Grid. Worse, the margin it
+# did add was partly WRONG (a satellite theme absorbing the defense primes; a
+# specialty-chemicals theme fused with an ad-tech one), so it bought almost no
+# new information and misled where it differed. Removed rather than kept as
+# near-duplicate. The identity defect underneath is tracked separately — it
+# also affects Rank Flow, just less visibly at band level.
+_VIEWS = ["Ecosystems", "Grid", "Detail", "Rank Flow", "Bump Chart", "Forward Returns"]
 if "view" not in st.session_state:
     st.session_state["view"] = "Ecosystems"
 
@@ -127,14 +135,6 @@ elif view == "Rank Flow":
     except Exception as _flow_err:
         st.error("⚠ Rank flow failed to load — the error is shown below; the Grid view still works.")
         st.exception(_flow_err)
-        render_grid()
-elif view == "Rank Heatmap":
-    try:
-        from theme_canon_heatmap import render_canon_heatmap  # lazy: isolate any load failure to this tab
-        render_canon_heatmap()
-    except Exception as _heat_err:
-        st.error("⚠ Rank heatmap failed to load — the error is shown below; the Grid view still works.")
-        st.exception(_heat_err)
         render_grid()
 elif view == "Bump Chart":
     try:
