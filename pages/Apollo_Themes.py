@@ -86,7 +86,11 @@ if _q:
 # #315: "Bump Chart" (R2) and "Forward Returns" (R4) are NEW views keyed on
 # canonical identity (R3, theme_canon.py) — Grid/Ecosystems/Detail above are
 # UNCHANGED and stay on raw theme `name` (they match the Telegram board).
-_VIEWS = ["Ecosystems", "Grid", "Detail", "Bump Chart", "Forward Returns"]
+# 2026-08-08 (operator: bump chart "not easiest to read... like Sankey"):
+# "Rank Flow" (alluvial) and "Rank Heatmap" (canonical) are NEW views, same
+# canonical data source as Bump Chart — Bump Chart itself stays (operator
+# called it "ok", not wrong; nothing removed here either).
+_VIEWS = ["Ecosystems", "Grid", "Detail", "Rank Flow", "Rank Heatmap", "Bump Chart", "Forward Returns"]
 if "view" not in st.session_state:
     st.session_state["view"] = "Ecosystems"
 
@@ -116,6 +120,22 @@ elif view == "Grid":
     render_grid()
 elif view == "Detail":
     render_detail()
+elif view == "Rank Flow":
+    try:
+        from theme_flow import render_flow  # lazy: isolate any load failure to this tab
+        render_flow()
+    except Exception as _flow_err:
+        st.error("⚠ Rank flow failed to load — the error is shown below; the Grid view still works.")
+        st.exception(_flow_err)
+        render_grid()
+elif view == "Rank Heatmap":
+    try:
+        from theme_canon_heatmap import render_canon_heatmap  # lazy: isolate any load failure to this tab
+        render_canon_heatmap()
+    except Exception as _heat_err:
+        st.error("⚠ Rank heatmap failed to load — the error is shown below; the Grid view still works.")
+        st.exception(_heat_err)
+        render_grid()
 elif view == "Bump Chart":
     try:
         from theme_bump import render_bump  # lazy: isolate any load failure to this tab
