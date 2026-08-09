@@ -206,21 +206,22 @@ class TestCohortAliases:
         assert cohort_aliases(canon).empty
 
 
+@pytest.fixture
+def raw_themes():
+    import json
+    import os
+    path = os.path.join(os.path.dirname(__file__), "apollo_themes_snapshot.json")
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    df = pd.DataFrame(raw["themes"])
+    df["theme_date"] = pd.to_datetime(df["theme_date"]).dt.date
+    df["tickers"] = df["tickers"].apply(lambda t: list(t) if t else [])
+    return df
+
+
 class TestLiveSnapshotSmoke:
     """Sanity check against the real committed snapshot — shape only, not an
     exact-cohort pin (the live data grows/drifts every night)."""
-
-    @pytest.fixture
-    def raw_themes(self):
-        import json
-        import os
-        path = os.path.join(os.path.dirname(__file__), "apollo_themes_snapshot.json")
-        with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
-        df = pd.DataFrame(raw["themes"])
-        df["theme_date"] = pd.to_datetime(df["theme_date"]).dt.date
-        df["tickers"] = df["tickers"].apply(lambda t: list(t) if t else [])
-        return df
 
     def test_runs_without_raising_and_covers_every_row(self, raw_themes):
         out = canonicalize_themes(raw_themes)
@@ -238,3 +239,147 @@ class TestLiveSnapshotSmoke:
         # anything" check is: some cohort merged >1 distinct name.
         out = canonicalize_themes(raw_themes)
         assert not cohort_aliases(out).empty
+
+
+class TestRealSnapshotOverMergeRegressions:
+    """#553 — cohort matching glued unrelated themes together. Pins the 3
+    confirmed-bad merges as separated and the 1 real duplicate as still
+    merged, using REAL ticker sets from the committed snapshot (not toy
+    fixtures) — found by instrumenting every merge decision against the live
+    data, see theme_canon.py's module docstring "#553 fix" section for the
+    full mechanism-by-mechanism story."""
+
+    @staticmethod
+    def _cids(out: pd.DataFrame, name: str) -> set[str]:
+        return set(out.loc[out["name"] == name, "canonical_id"])
+
+    def test_satellite_mobile_does_not_absorb_defense_primes(self, raw_themes):
+        # Bug: "Satellite Mobile & IoT Connectivity Services" absorbed "U.S.
+        # Defense Primes & Aerospace" ({GD, LMT, NOC, RTX}) via Tier 2 on
+        # first contact at Jaccard 0.667 (2026-03-25) — a brand-new name
+        # grabbing a cohort it had never touched, on partial overlap alone.
+        # The ORIGINAL 4-ticker capture (2026-03-19..03-24, before the
+        # hijack) must now stay its own identity for its whole run.
+        out = canonicalize_themes(raw_themes)
+        dp_original = out[
+            (out["name"] == "U.S. Defense Primes & Aerospace")
+            & (out["theme_date"] <= date(2026, 3, 24))
+        ]
+        assert not dp_original.empty
+        dp_cids = set(dp_original["canonical_id"])
+        sat_cids = self._cids(out, "Satellite Mobile & IoT Connectivity Services")
+        assert dp_cids.isdisjoint(sat_cids), (
+            f"Defense Primes {dp_cids} and Satellite Mobile {sat_cids} still share an id"
+        )
+
+    def test_niche_specialty_chemicals_does_not_fuse_with_ip_licensing(self, raw_themes):
+        # Bug: "Niche Specialty Chemicals & Industrial Intermediates" and two
+        # IP-licensing/ad-tech names both reduced to the identical 2-ticker
+        # {ADEA, RYAM} set at different points and merged via Tier 2's
+        # min_shared relaxation (2/2 "full" match on a signature too small to
+        # trust — same shape as the already-guarded 1-ticker CRCL/XFLT case).
+        out = canonicalize_themes(raw_themes)
+        chem_cids = self._cids(out, "Niche Specialty Chemicals & Industrial Intermediates")
+        ip1_cids = self._cids(out, "IP Licensing & Ad-Tech Royalty Software")
+        ip2_cids = self._cids(
+            out, "IP Licensing & Patent Monetization Software Platforms"
+        )
+        assert chem_cids.isdisjoint(ip1_cids)
+        assert chem_cids.isdisjoint(ip2_cids)
+
+    def test_nitrogen_chemicals_nylon_chain_does_not_collapse_to_one_identity(
+        self, raw_themes
+    ):
+        # Bug: "Nitrogen & Specialty Crop Nutrient Producers" + "Niche
+        # Specialty Chemicals & Industrial Intermediates" + "Nylon &
+        # Engineered Polymer Intermediates" chain-merged onto ONE canonical
+        # id — each day's Tier 2 hop looked individually plausible (Jaccard
+        # 0.7-1.0 against whatever the cohort currently held) while the
+        # cumulative walk drifted from a 5-ticker specialty-chemicals cohort
+        # to a 15-ticker nitrogen-fertilizer/agri-business basket sharing
+        # only one ticker with where it started. The anchor-set check (Fix D)
+        # must stop all three names from EVER sharing a single canonical_id.
+        out = canonicalize_themes(raw_themes)
+        nitro_cids = self._cids(out, "Nitrogen & Specialty Crop Nutrient Producers")
+        chem_cids = self._cids(out, "Niche Specialty Chemicals & Industrial Intermediates")
+        nylon_cids = self._cids(out, "Nylon & Engineered Polymer Intermediates")
+        assert not (nitro_cids & chem_cids & nylon_cids), (
+            "all three raw names still share at least one canonical_id"
+        )
+        # Strongest, cleanest separation the fix actually achieves: Nitrogen
+        # (the fertilizer/agri cluster) never touches the chemicals cluster
+        # at all, in either of its two names.
+        assert nitro_cids.isdisjoint(chem_cids)
+
+    def test_defense_spending_and_contract_surge_still_merge(self, raw_themes):
+        # The REAL duplicate the whole feature exists to catch — must
+        # survive every #553 guard. Both rows are the SAME day (2026-08-04),
+        # identical 4-ticker set {AMRC, PLTR, TSAT, VOYG} — an intra-day
+        # dedup_themes merge (Jaccard 1.0), never touched by any Tier 2
+        # guard, so it should be untouched by this fix by construction.
+        out = canonicalize_themes(raw_themes)
+        d0 = date(2026, 8, 4)
+        spending = out[
+            (out["name"] == "U.S. Government/Defense Spending Surge")
+            & (out["theme_date"] == d0)
+        ]
+        contract = out[
+            (out["name"] == "U.S. Government/Defense Contract Surge")
+            & (out["theme_date"] == d0)
+        ]
+        assert not spending.empty and not contract.empty
+        assert spending["canonical_id"].iloc[0] == contract["canonical_id"].iloc[0]
+
+    @staticmethod
+    def _dedup_themes_pre_553_oracle(theme_tickers, threshold=0.50, min_shared=3):
+        # Verbatim re-derivation of dedup_themes as it existed BEFORE #553
+        # (containment-only, Jaccard used only as a tie-break — no floor) —
+        # an independent oracle, not a call into the function under test, so
+        # this test can't pass by both sides sharing a bug.
+        if not theme_tickers:
+            return {}
+        by_size = sorted(theme_tickers.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+        parent_of = {name: name for name, _ in by_size}
+        sets = {name: set(tickers) for name, tickers in by_size}
+        for i, (s_name, _s_tickers) in enumerate(by_size):
+            s_set = sets[s_name]
+            if not s_set:
+                continue
+            candidates = []
+            for j in range(i):
+                l_name = by_size[j][0]
+                if parent_of[l_name] != l_name:
+                    continue
+                l_set = sets[l_name]
+                shared = len(s_set & l_set)
+                if shared < min_shared:
+                    continue
+                if shared / len(s_set) >= threshold:
+                    jaccard = shared / len(s_set | l_set)
+                    candidates.append((l_name, jaccard))
+            if candidates:
+                parent_of[s_name] = max(candidates, key=lambda kv: kv[1])[0]
+        return parent_of
+
+    def test_grid_output_unchanged(self, raw_themes):
+        # THE HARD CONSTRAINT (#553): theme_grid.py's dedup call (threshold
+        # 0.50, min_shared from its 0..6 slider, NO jaccard_floor) must
+        # produce byte-identical parent_of output to the pre-#553 function,
+        # across the FULL slider range Grid exposes — not just the default.
+        from theme_data import dedup_themes
+
+        latest = (
+            raw_themes.sort_values(["name", "theme_date"])
+            .drop_duplicates("name", keep="last")
+        )
+        theme_tickers = {
+            row["name"]: tuple(row["tickers"])
+            for _, row in latest.iterrows()
+            if row["tickers"]
+        }
+        for min_shared in range(0, 7):
+            got = dedup_themes(theme_tickers, threshold=0.50, min_shared=min_shared)
+            want = self._dedup_themes_pre_553_oracle(
+                theme_tickers, threshold=0.50, min_shared=min_shared
+            )
+            assert got == want, f"min_shared={min_shared} diverged from pre-#553 behavior"

@@ -427,12 +427,27 @@ def dedup_themes(
     theme_tickers: dict[str, tuple[str, ...]],
     threshold: float = 0.50,
     min_shared: int = 3,
+    jaccard_floor: float | None = None,
 ) -> dict[str, str]:
     """Subset-aware dedup. Returns parent_of: alias_name -> representative.
 
     Verbatim from rs-theme-dash/data.py (pure function, no DB). Sort by size DESC;
     a smaller theme S merges into a larger un-merged L when
     |S ∩ L| / |S| >= threshold AND |S ∩ L| >= min_shared (tie-break by Jaccard).
+
+    `jaccard_floor` (#553 fix, theme_canon.py Suspect #1): default None preserves
+    the ORIGINAL containment-only behavior exactly — theme_grid.py's Grid view
+    never passes it, so Grid's rendered output is byte-identical before/after
+    this change (proven by test_grid_output_unchanged in test_theme_canon.py).
+    When a caller passes a float, a symmetric Jaccard floor becomes a GATE
+    (not just a tie-break): a small theme wholly CONTAINED in a much larger,
+    unrelated one scores containment 1.0 regardless of true relatedness (real
+    example: "Oil & Gas" contains 3 distinct sub-themes at containment 1.0
+    each, Jaccard ~0.5) — same-day dedup needs the option to also require real
+    mutual overlap, not just one-sided containment. theme_canon.py's cross-day
+    canonicalizer passes its own overlap_threshold here so a small theme fully
+    swallowed by an unrelated large theme on the SAME day can't seed a bad
+    cross-day identity chain before Tier 2 ever runs.
     """
     if not theme_tickers:
         return {}
@@ -456,6 +471,8 @@ def dedup_themes(
                 continue
             if shared / len(s_set) >= threshold:
                 jaccard = shared / len(s_set | l_set)
+                if jaccard_floor is not None and jaccard < jaccard_floor:
+                    continue
                 candidates.append((l_name, jaccard))
         if candidates:
             parent_of[s_name] = max(candidates, key=lambda kv: kv[1])[0]

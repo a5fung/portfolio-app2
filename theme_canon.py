@@ -105,6 +105,92 @@ chain) were found by running earlier drafts of this algorithm against the
 real `apollo_themes_snapshot.json` and inspecting the resulting cohorts —
 `test_theme_canon.py` pins the fixed behavior against small synthetic
 fixtures encoding each one, plus a smoke test against the live snapshot.
+
+## #553 fix — cohort matching glued unrelated themes together
+
+Measured on the real snapshot (2026-08-08): 34 of 311 cohorts (11%) were
+stitched from more than one raw name, and three of those were plainly wrong
+— e.g. "Satellite Mobile & IoT Connectivity Services" absorbed "U.S. Defense
+Primes & Aerospace" ({GD, LMT, NOC, RTX}) on pure ticker overlap despite
+being different real themes. The guards above (symmetric Jaccard, size-ratio
+cap, structural guard) all predate this fix and did NOT catch these three —
+four NEW guards were required, found by instrumenting every merge decision
+against the real snapshot (not guessed):
+
+  - **`_intraday_representatives` now passes `jaccard_floor=overlap_threshold`
+    to `dedup_themes()`** (see that function's docstring). Without it, the
+    SAME-DAY collapse step (step 1 of the algorithm above) can glue two
+    unrelated themes together at containment 1.0 / Jaccard as low as ~0.3
+    BEFORE cross-day matching ever runs — real example: on 2026-04-13,
+    "Niche Specialty Chemicals & Industrial Intermediates" (6 tickers) was
+    same-day contained in "Agricultural Commodities & Agri-Business" (15
+    tickers) at containment 1.0 but Jaccard 0.4, seeding part of the
+    Nitrogen/chemicals chain-merge below. `theme_grid.py`'s own dedup call
+    does NOT pass this — Grid's behavior is provably unchanged (see
+    `test_grid_output_unchanged`).
+  - **The Tier 2 `min_shared` relaxation was removed** — it used to accept
+    `shared >= min(min_shared, denom)`, letting a 2-ticker set match on only
+    2 shared tickers. Real example: "Niche Specialty Chemicals & Industrial
+    Intermediates" and "IP Licensing & Ad-Tech Royalty Software" both
+    reduced to the identical 2-ticker set {ADEA, RYAM} at different points
+    and merged at Jaccard 1.0 purely because 2/2 cleared the relaxed floor —
+    same failure shape as the 1-ticker CRCL/XFLT case above, just one notch
+    bigger. Tier 2 now requires the SAME unrelaxed `min_shared` floor
+    `dedup_themes()` already enforces — there is no principled reason
+    cross-day matching should trust weaker evidence than same-day matching
+    does.
+  - **`_FIRST_CONTACT_THRESHOLD = 0.70`** — a rep_name that has NEVER before
+    been recorded under a candidate cohort (as its representative OR as a
+    same-day alias absorbed into it) must clear a higher Jaccard bar than one
+    that has. Real example: "Satellite Mobile & IoT Connectivity Services"
+    had never touched the "U.S. Defense Primes & Aerospace" cohort before,
+    yet grabbed it at Jaccard 0.667 (4 of 6 tickers pre-existing, 2 brand
+    new) on first contact — exactly the situation where a stable NAME (Tier
+    1) or a prior track record is the only real evidence a match is genuine,
+    and neither existed. 0.70 sits strictly above 0.667 (blocks the bad
+    case) and strictly below 0.714/0.778 (the real first-contact renames
+    this snapshot also contains, e.g. "Theme Alpha" → "Theme Alpha Redux"
+    shape and "Niche Specialty Chemicals" → "Nylon & Engineered Polymer
+    Intermediates" both still pass). A cohort's OWN alias history (recorded
+    every day, not just for its current representative) counts as prior
+    contact, so a same-day handoff established via intraday dedup still
+    carries its lower 0.50 bar forward on the day the old name retires (see
+    `test_old_name_retiring_hands_off_to_its_own_alias`).
+  - **Anchor-set check** — every cohort freezes `anchor_tickers` (its ticker
+    set at creation, never updated). Tier 2 must clear `overlap_threshold`
+    against BOTH the cohort's latest set AND its anchor set. This is what
+    stops chain drift: each single hop in a chain can look individually
+    fine (Jaccard 0.7-1.0 against whatever the cohort currently holds) while
+    the cumulative walk ends up somewhere unrelated to where the cohort
+    started. Real example: by 2026-04-10, a cohort that began as "Niche
+    Specialty Chemicals & Industrial Intermediates" ({ASIX, CC, CE, LXU,
+    RYAM}) had — through 6 individually-plausible hops — drifted to a
+    15-ticker nitrogen-fertilizer/agri-business set sharing only LXU with
+    where it started; "Nitrogen & Specialty Crop Nutrient Producers" then
+    matched that DRIFTED set at Jaccard 1.0. Checked against the frozen
+    anchor, that same match scores Jaccard 0.333 and is blocked. Applies
+    ONLY to Tier 2 — Tier 1 (exact-name) drift is deliberately left
+    ungated, unchanged from the original design (a stable label is treated
+    as strong evidence on its own, per the Tier 1 rationale above).
+
+Residual (documented, not fixed here): a handful of same-day merges at
+exactly the 0.50 Jaccard boundary survive by design — e.g. "Oil & Gas"
+(6 tickers) still absorbs the 3 sub-themes cited above at Jaccard exactly
+0.5 each (the size-ratio guard does NOT catch this one — 6/3 = 2.0 is under
+the 2.5 cap; that claim in the paragraph above predates this fix and turned
+out to be wrong once actually checked against the real data). Tightening
+the boundary to `>` would flip `test_old_name_retiring_hands_off_to_its_own_
+alias`, which is pinned at exactly Jaccard 0.50 for a real, wanted merge —
+so this stays a documented limitation rather than a further threshold
+change (avoids re-litigating one number against two conflicting real
+examples with no data to break the tie). Also unfixed by design: a single
+anomalous later row can still re-attach to a cohort it was split from, if by
+then the two genuinely do share ~80%+ of their tickers (e.g. one stray
+2026-04-13 "U.S. Defense Primes & Aerospace" row re-joins the Satellite
+Mobile cohort it was split from at 03-25, because by then their baskets
+really had converged to 83% overlap) — ticker-only matching cannot
+distinguish that from a genuine rename; the ORIGINAL 4-ticker capture the
+operator flagged is fixed and stays fixed for its entire run.
 """
 from __future__ import annotations
 
@@ -120,6 +206,8 @@ _MIN_SHARED = 3             # |intersection| floor — reuses dedup_themes' valu
 _MAX_GAP_DAYS = 10          # ~2x the observed max real-cadence gap (4 days)
 _SIZE_RATIO_CAP = 2.5       # blocks tiny-set-fully-inside-huge-set false merges
 _MAX_SET_SIZE = 20          # excludes glitched near-universe-wide basket rows
+_FIRST_CONTACT_THRESHOLD = 0.70  # #553: Tier 2 bar for a name/cohort pair with
+                                  # no prior track record (see module docstring)
 
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
@@ -146,7 +234,13 @@ def _intraday_representatives(
         for _, row in day_rows.iterrows()
         if row["tickers"] and len(row["tickers"]) <= max_set_size
     }
-    parent_of = dedup_themes(name_tickers, threshold=threshold, min_shared=min_shared)
+    # #553: jaccard_floor=threshold turns dedup_themes' containment-only match
+    # into a containment-AND-Jaccard gate here (Grid's own call in
+    # theme_grid.py does NOT pass this, so Grid is unaffected — see that
+    # function's docstring + test_grid_output_unchanged).
+    parent_of = dedup_themes(
+        name_tickers, threshold=threshold, min_shared=min_shared, jaccard_floor=threshold
+    )
     rep_tickers = {
         name: frozenset(tks)
         for name, tks in name_tickers.items()
@@ -162,6 +256,7 @@ def canonicalize_themes(
     max_gap_days: int = _MAX_GAP_DAYS,
     size_ratio_cap: float = _SIZE_RATIO_CAP,
     max_set_size: int = _MAX_SET_SIZE,
+    first_contact_threshold: float = _FIRST_CONTACT_THRESHOLD,
 ) -> pd.DataFrame:
     """Attach `canonical_id` / `canonical_name` to every (name, theme_date) row.
 
@@ -186,7 +281,14 @@ def canonicalize_themes(
     work = df.sort_values("theme_date").reset_index(drop=True)
 
     # cohorts[cid] = {"tickers": frozenset (last USABLE reference set),
-    #                 "last_date": date, "last_name": str}
+    #                 "last_date": date, "last_name": str,
+    #                 "anchor_tickers": frozenset (FROZEN at creation, #553
+    #                     Fix D — never updated again; the chain-drift check
+    #                     below compares against this, not just "tickers"),
+    #                 "ever_names": set[str] (#553 Fix C — every raw name ever
+    #                     recorded under this cid, rep or alias; a name with
+    #                     no entry here is "first contact" and needs the
+    #                     higher first_contact_threshold bar)}
     cohorts: dict[str, dict] = {}
     next_id = 1
     # canonical_id assigned per (theme_date, name) row — built up day by day.
@@ -245,13 +347,44 @@ def canonicalize_themes(
                     continue
                 denom = min(len(a), len(b))
                 shared = len(a & b)
-                if shared < min(min_shared, denom):
+                # #553 Fix B: NEVER relax below the plain min_shared floor. A
+                # 2-ticker set hitting shared==2 used to slip through here
+                # (min(min_shared, denom) == denom when denom < min_shared) —
+                # real example: two totally unrelated theme names both
+                # reduced to the identical {ADEA, RYAM} pair and merged on a
+                # "full" 2/2 match that carries no more evidence than the
+                # already-rejected 1-ticker CRCL/XFLT case below. Cross-day
+                # matching should never trust weaker evidence than same-day
+                # dedup_themes does (which never relaxes this floor).
+                if shared < min_shared:
                     continue
                 if max(len(a), len(b)) / denom > size_ratio_cap:
                     continue
                 score = _jaccard(a, b)
-                if score >= overlap_threshold:
-                    scored.append((score, shared, rep_name, cid))
+                if score < overlap_threshold:
+                    continue
+                # #553 Fix C: first contact between this raw name and this
+                # cohort needs a higher bar than a name/cohort pair with a
+                # track record (Tier 1 exact-name persistence or a prior
+                # same-day alias — see cohort_aliases's "ever_names" comment
+                # above). Real example: "Satellite Mobile & IoT Connectivity
+                # Services" had never touched the "U.S. Defense Primes &
+                # Aerospace" cohort before, yet grabbed it at Jaccard 0.667
+                # (2 of its 6 tickers brand new) on first contact alone.
+                if rep_name not in c.get("ever_names", ()):
+                    if score < first_contact_threshold:
+                        continue
+                # #553 Fix D: also require the match against the cohort's
+                # FROZEN anchor set (its tickers at creation), not just its
+                # latest (possibly already-drifted) set — otherwise a chain
+                # of individually-plausible day-to-day hops can walk a
+                # cohort's identity far from where it started while every
+                # single hop clears the bar. Tier 1 (exact-name) drift is
+                # deliberately exempt — see module docstring.
+                anchor = c.get("anchor_tickers")
+                if anchor and _jaccard(a, anchor) < overlap_threshold:
+                    continue
+                scored.append((score, shared, rep_name, cid))
         scored.sort(key=lambda x: (-x[0], -x[1]))
         for _score, _shared, rep_name, cid in scored:
             if rep_name in assigned or cid in claimed_today:
@@ -264,7 +397,10 @@ def canonicalize_themes(
             if rep_name not in assigned:
                 cid = f"K{next_id:04d}"
                 next_id += 1
-                cohorts[cid] = {"tickers": frozenset(), "last_date": day, "last_name": rep_name}
+                cohorts[cid] = {
+                    "tickers": frozenset(), "last_date": day, "last_name": rep_name,
+                    "anchor_tickers": None, "ever_names": set(),
+                }
                 assigned[rep_name] = cid
 
         # Commit today's state + row -> canonical_id map (rep AND aliases).
@@ -272,12 +408,20 @@ def canonicalize_themes(
             tks = rep_tickers.get(rep_name, frozenset())
             if tks and len(tks) <= max_set_size:
                 cohorts[cid]["tickers"] = tks
+                if cohorts[cid].get("anchor_tickers") is None:
+                    cohorts[cid]["anchor_tickers"] = tks  # #553 Fix D: frozen once, at creation
             cohorts[cid]["last_date"] = day
             cohorts[cid]["last_name"] = rep_name
 
         for _, row in day_rows.iterrows():
             rep_name = parent_of.get(row["name"], row["name"])
-            cid_by_key[(day, row["name"])] = assigned[rep_name]
+            cid = assigned[rep_name]
+            cid_by_key[(day, row["name"])] = cid
+            # #553 Fix C: record EVERY raw name seen today under this cid
+            # (rep and aliases alike) so a same-day handoff (e.g. the
+            # old-name-retires-to-its-alias case) carries prior-contact
+            # status forward, not just the day's chosen representative.
+            cohorts[cid].setdefault("ever_names", set()).add(row["name"])
 
     canonical_name_of = {cid: c["last_name"] for cid, c in cohorts.items()}
 
