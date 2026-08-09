@@ -39,7 +39,13 @@ _BAND_LABEL = {
 def _fmt_delta(v) -> str:
     if v is None or pd.isna(v):
         return "—"
-    v = float(v) + 0.0 if v != 0 else 0.0   # avoid a confusing "-0.0" on a true zero
+    # `+ 0.0` normalizes a `-0.0` input to `0.0` (IEEE-754: adding positive
+    # zero flips a negative zero's sign) so the f-string below never prints
+    # a confusing "-0.0". Applies unconditionally — the old `if v != 0`
+    # guard never actually ran this line for -0.0 (`-0.0 != 0` is False in
+    # Python), so the hardcoded `else: 0.0` was silently doing the real work
+    # for that case; `float(v) + 0.0` alone covers both cases identically.
+    v = float(v) + 0.0
     return f"{v:+.1f}"
 
 

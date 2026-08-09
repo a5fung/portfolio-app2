@@ -94,17 +94,27 @@ def _week_start(theme_dates: pd.Series) -> pd.Series:
     return pd.to_datetime(theme_dates).dt.to_period("W").dt.start_time.dt.date
 
 
-def _weekly_universe(window: pd.DataFrame) -> pd.DataFrame:
+def _weekly_universe(window: pd.DataFrame, key: str = "name") -> pd.DataFrame:
     """One row per (theme, week) = the last snapshot in each ISO week, with
     week_rank computed over the FULL universe that week (rs_avg DESC, nulls
     unranked). Shared by the grid and the detail arc — both need the same
     per-week ranking universe.
+
+    `key` selects the identity column DISTINCT ON collapses to one row per
+    week: "name" (default) for the raw Grid/Detail views, "canonical_id" for
+    the canonical-identity views (get_canonical_weekly_grid). Ranking always
+    recomputes over whatever population survives that collapse, so a
+    canonical rank will NOT always match the raw Grid's rank for the same
+    calendar week — merging same-cohort name-variants shrinks that week's
+    row count by design (mirrors theme_grid.py's own "recompute over
+    survivors when dedup is on" precedent). The Grid/Ecosystems views use
+    the default and are unaffected by the canonical path.
     """
     w = window.copy()
     w["week_start"] = _week_start(w["theme_date"])
-    # DISTINCT ON (name, week) ORDER BY theme_date DESC -> keep latest date per (name, week)
-    w = w.sort_values(["name", "week_start", "theme_date"]).drop_duplicates(
-        ["name", "week_start"], keep="last"
+    # DISTINCT ON (key, week) ORDER BY theme_date DESC -> keep latest date per (key, week)
+    w = w.sort_values([key, "week_start", "theme_date"]).drop_duplicates(
+        [key, "week_start"], keep="last"
     )
     w["week_rank"] = w.groupby("week_start")["rs_avg"].rank(
         method="min", ascending=False, na_option="keep"
@@ -562,29 +572,6 @@ def get_canonical_themes() -> pd.DataFrame:
     return canonicalize_themes(df)
 
 
-def _canonical_weekly_universe(window: pd.DataFrame) -> pd.DataFrame:
-    """Same shape as `_weekly_universe` above, but DISTINCT ON
-    (canonical_id, week) instead of (name, week), and week_rank recomputed
-    over the CANONICAL population. A canonical rank will NOT always match
-    the raw Grid's rank for the same calendar week — merging same-cohort
-    name-variants shrinks that week's row count by design (mirrors
-    theme_grid.py's own "recompute over survivors when dedup is on"
-    precedent). The Grid/Ecosystems views are unaffected; this is a separate
-    read."""
-    w = window.copy()
-    w["week_start"] = _week_start(w["theme_date"])
-    w = w.sort_values(["canonical_id", "week_start", "theme_date"]).drop_duplicates(
-        ["canonical_id", "week_start"], keep="last"
-    )
-    w["week_rank"] = w.groupby("week_start")["rs_avg"].rank(
-        method="min", ascending=False, na_option="keep"
-    )
-    w["week_universe"] = w.groupby("week_start")["rs_avg"].transform(
-        lambda s: int(s.notna().sum())
-    )
-    return w
-
-
 @st.cache_data(ttl=300)
 def get_canonical_weekly_grid(weeks: int = 24) -> pd.DataFrame:
     """Weekly rank grid keyed by CANONICAL identity — the R2 bump chart's
@@ -594,7 +581,11 @@ def get_canonical_weekly_grid(weeks: int = 24) -> pd.DataFrame:
     the snapshot's own latest `theme_date`, NOT wall-clock `date.today()` —
     this snapshot is a nightly export and is routinely a day (or a weekend)
     behind; anchoring on today() would silently return an empty window on
-    export lag rather than the most recent data actually on file."""
+    export lag rather than the most recent data actually on file.
+
+    Uses `_weekly_universe(window, key="canonical_id")` — same DISTINCT-ON +
+    rank pipeline the raw Grid uses (see that function's docstring for why
+    the canonical rank can diverge from Grid's own rank for the same week)."""
     canon = get_canonical_themes()
     if canon.empty:
         return pd.DataFrame()
@@ -603,10 +594,33 @@ def get_canonical_weekly_grid(weeks: int = 24) -> pd.DataFrame:
     window = canon[canon["theme_date"] >= cutoff]
     if window.empty:
         return pd.DataFrame()
-    grid = _canonical_weekly_universe(window).rename(columns={"theme_date": "as_of_date"})
+    grid = _weekly_universe(window, key="canonical_id").rename(columns={"theme_date": "as_of_date"})
     return grid.sort_values(
         ["week_start", "week_rank"], na_position="last"
     ).reset_index(drop=True)
+
+
+@st.cache_data(ttl=300)
+def get_canonical_weeks_on_file(weeks: int = 24) -> int:
+    """Count of ISO weeks with >=1 usable (non-null rs_avg) row within the
+    trailing `weeks`-week canonical window — the same count
+    `len(_usable_weeks(get_canonical_weekly_grid(weeks=weeks)))` would give,
+    for a caller (theme_flow.py's depth caption) that only needs the COUNT,
+    not per-week identity. Deliberately skips get_canonical_weekly_grid's
+    dedup/rank pipeline: `get_canonical_themes()` is already cached and
+    shared with any other canonical-view call in the same render, so this
+    reads off data already in scope instead of paying for a second, larger
+    computation just to report a number."""
+    canon = get_canonical_themes()
+    if canon.empty:
+        return 0
+    latest_date = canon["theme_date"].max()
+    cutoff = latest_date - timedelta(weeks=weeks)
+    window = canon[canon["theme_date"] >= cutoff]
+    if window.empty:
+        return 0
+    week_start = _week_start(window["theme_date"])
+    return int(week_start[window["rs_avg"].notna()].nunique())
 
 
 @st.cache_data(ttl=300)

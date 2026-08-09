@@ -63,7 +63,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from theme_data import get_canonical_weekly_grid, get_top_members_by_rs
+from theme_data import get_canonical_weekly_grid, get_canonical_weeks_on_file, get_top_members_by_rs
 # Reuse Grid's exact rank→color mapping (not a new ramp) so this view and the
 # Grid/Heatmap read as ONE visual system — "brighter green = better rank" is
 # already the app's established language; inventing a second one here would
@@ -300,7 +300,12 @@ def render_flow() -> None:
 
     st.caption(
         f"Rows top→bottom: {' · '.join(_BAND_ORDER)}. Latest week **{weeks[-1]}**, "
-        f"{len(weeks)} week(s) of {len(_usable_weeks(get_canonical_weekly_grid(weeks=24)))} "
+        # get_canonical_weeks_on_file (not a second get_canonical_weekly_grid
+        # call) — weeks=24 here never shares a cache key with weeks_n above
+        # (slider caps at 20), so a second full grid call would be a
+        # guaranteed cache miss just to report a count; this reads the count
+        # off get_canonical_themes() directly instead.
+        f"{len(weeks)} week(s) of {get_canonical_weeks_on_file(weeks=24)} "
         "total on file · "
         f"{len(on_board_ids)} cohort(s) reached the top {_OUTSIDE_BOUND} in this window. "
         "⚠ Small/young cohorts (most theme rows carry under 3 tickers) can only be "

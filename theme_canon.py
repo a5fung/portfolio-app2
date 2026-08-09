@@ -59,15 +59,26 @@ resulting cohorts (not picked from first principles):
     contains three genuinely distinct sub-themes ("Large-Cap Upstream Oil &
     Gas E&P", "Downstream Oil Refining & Midstream", "Permian Basin
     Pure-Play E&P") at containment 1.0 each — Jaccard for the same pairs
-    tops out at 0.5, which the size-ratio guard below still catches.
-  - **`_SIZE_RATIO_CAP = 2.5`** (`max(|A|,|B|) / min(|A|,|B|)` must not
-    exceed this) and **both sides must have >= 2 tickers to attempt overlap
-    matching at all.** A 1-ticker reference set is not a real signature: any
-    2-ticker set sharing that one ticker clears Jaccard 0.5 trivially. Real
-    example: "Crypto Recovery" (tickers={CRCL}) vs "CLO & Structured Credit
-    Income" (tickers={CRCL, XFLT}) — Jaccard 0.5, `min_shared` floor
-    satisfied, and yet these are unrelated themes that happen to share one
-    stock. Blocked by requiring `min(|A|,|B|) >= 2`.
+    tops out at exactly 0.5, right at `_OVERLAP_THRESHOLD`'s own floor, so
+    symmetric Jaccard narrows this case but does not fully block it (see the
+    Residual section below — a documented, accepted limit, not something a
+    further guard catches).
+  - **`_MIN_SHARED = 3`** (the intersection floor) is what actually blocks a
+    weak reference set from matching. Real example: "Crypto Recovery"
+    (tickers={CRCL}) vs "CLO & Structured Credit Income" (tickers={CRCL,
+    XFLT}) — Jaccard 0.5, and yet these are unrelated themes that happen to
+    share one stock; blocked because `shared=1 < 3`. An explicit
+    `len(a) >= 2` / `len(b) >= 2` per-side floor and a separate
+    `_SIZE_RATIO_CAP = 2.5` (`max(|A|,|B|) / min(|A|,|B|)` must not exceed
+    this) used to sit alongside `min_shared` for the same purpose. Both were
+    provably redundant with it: `shared >= 3` already forces `|A|>=3` and
+    `|B|>=3` (so a 1-ticker set like CRCL's can never reach a real match
+    regardless of any size floor), and `Jaccard >= 0.50` mathematically
+    implies a size ratio <= 2.0 — strictly tighter than the 2.5 cap, so it
+    could never fire while `_OVERLAP_THRESHOLD >= 0.50`. Both were removed
+    as dead code (verified byte-identical: 332 -> 332 cohorts, pinned cases
+    unchanged); the surviving code only skips a genuinely EMPTY ticker set,
+    a degenerate-input guard rather than a matching-quality one.
   - **`_MAX_SET_SIZE = 20`** — rows above this are excluded from BOTH
     matching and from updating a cohort's reference ticker set. 58/3093 rows
     (1.9%) in this snapshot have >20 tickers, and inspecting them shows the
@@ -176,14 +187,12 @@ against the real snapshot (not guessed):
 Residual (documented, not fixed here): a handful of same-day merges at
 exactly the 0.50 Jaccard boundary survive by design — e.g. "Oil & Gas"
 (6 tickers) still absorbs the 3 sub-themes cited above at Jaccard exactly
-0.5 each (the size-ratio guard does NOT catch this one — 6/3 = 2.0 is under
-the 2.5 cap; that claim in the paragraph above predates this fix and turned
-out to be wrong once actually checked against the real data). Tightening
-the boundary to `>` would flip `test_old_name_retiring_hands_off_to_its_own_
-alias`, which is pinned at exactly Jaccard 0.50 for a real, wanted merge —
-so this stays a documented limitation rather than a further threshold
-change (avoids re-litigating one number against two conflicting real
-examples with no data to break the tie). Also unfixed by design: a single
+0.5 each. Tightening the boundary to `>` would flip
+`test_old_name_retiring_hands_off_to_its_own_alias`, which is pinned at
+exactly Jaccard 0.50 for a real, wanted merge — so this stays a documented
+limitation rather than a further threshold change (avoids re-litigating one
+number against two conflicting real examples with no data to break the
+tie). Also unfixed by design: a single
 anomalous later row can still re-attach to a cohort it was split from, if by
 then the two genuinely do share ~80%+ of their tickers (e.g. one stray
 2026-04-13 "U.S. Defense Primes & Aerospace" row re-joins the Satellite
@@ -204,7 +213,6 @@ from theme_data import dedup_themes
 _OVERLAP_THRESHOLD = 0.50  # Jaccard floor — reuses dedup_themes' value
 _MIN_SHARED = 3             # |intersection| floor — reuses dedup_themes' value
 _MAX_GAP_DAYS = 10          # ~2x the observed max real-cadence gap (4 days)
-_SIZE_RATIO_CAP = 2.5       # blocks tiny-set-fully-inside-huge-set false merges
 _MAX_SET_SIZE = 20          # excludes glitched near-universe-wide basket rows
 _FIRST_CONTACT_THRESHOLD = 0.70  # #553: Tier 2 bar for a name/cohort pair with
                                   # no prior track record (see module docstring)
@@ -254,7 +262,6 @@ def canonicalize_themes(
     overlap_threshold: float = _OVERLAP_THRESHOLD,
     min_shared: int = _MIN_SHARED,
     max_gap_days: int = _MAX_GAP_DAYS,
-    size_ratio_cap: float = _SIZE_RATIO_CAP,
     max_set_size: int = _MAX_SET_SIZE,
     first_contact_threshold: float = _FIRST_CONTACT_THRESHOLD,
 ) -> pd.DataFrame:
@@ -329,7 +336,10 @@ def canonicalize_themes(
             if rep_name in assigned:
                 continue
             a = rep_tickers.get(rep_name, frozenset())
-            if len(a) < 2 or len(a) > max_set_size:
+            # `< 1` only excludes a genuinely empty set (degenerate input) —
+            # `min_shared` (3) already forces both sides to have >= 3 members
+            # for any match to survive, so an explicit >=2 floor here is dead.
+            if len(a) < 1 or len(a) > max_set_size:
                 continue
             for cid, c in cohorts.items():
                 if cid in claimed_today:
@@ -343,9 +353,8 @@ def canonicalize_themes(
                 if c["last_name"] in today_names and c["last_name"] != rep_name:
                     continue
                 b = c["tickers"]
-                if len(b) < 2 or len(b) > max_set_size:
+                if len(b) < 1 or len(b) > max_set_size:
                     continue
-                denom = min(len(a), len(b))
                 shared = len(a & b)
                 # #553 Fix B: NEVER relax below the plain min_shared floor. A
                 # 2-ticker set hitting shared==2 used to slip through here
@@ -355,10 +364,12 @@ def canonicalize_themes(
                 # "full" 2/2 match that carries no more evidence than the
                 # already-rejected 1-ticker CRCL/XFLT case below. Cross-day
                 # matching should never trust weaker evidence than same-day
-                # dedup_themes does (which never relaxes this floor).
+                # dedup_themes does (which never relaxes this floor). This
+                # same floor (shared >= min_shared=3) also subsumes the old
+                # explicit per-side >=2 size floor and the separate
+                # `_SIZE_RATIO_CAP` guard — both removed as dead code, see
+                # module docstring "Thresholds" section.
                 if shared < min_shared:
-                    continue
-                if max(len(a), len(b)) / denom > size_ratio_cap:
                     continue
                 score = _jaccard(a, b)
                 if score < overlap_threshold:
@@ -406,7 +417,11 @@ def canonicalize_themes(
         # Commit today's state + row -> canonical_id map (rep AND aliases).
         for rep_name, cid in assigned.items():
             tks = rep_tickers.get(rep_name, frozenset())
-            if tks and len(tks) <= max_set_size:
+            # `rep_tickers` (from `_intraday_representatives`) only ever holds
+            # sets already <= max_set_size — anything oversized was withheld
+            # upstream — so `tks` truthy already implies the size condition;
+            # the size half of this check was dead.
+            if tks:
                 cohorts[cid]["tickers"] = tks
                 if cohorts[cid].get("anchor_tickers") is None:
                     cohorts[cid]["anchor_tickers"] = tks  # #553 Fix D: frozen once, at creation
@@ -437,11 +452,16 @@ def cohort_aliases(canon_df: pd.DataFrame) -> pd.DataFrame:
     """One row per canonical_id that wore >1 distinct raw name — for a
     transparency expander (mirrors theme_grid.py's "Dedup detail"). Columns:
     canonical_id, canonical_name, aliases (list[str], excludes canonical_name
-    itself), first_date, last_date, n_names."""
-    if canon_df.empty:
-        return pd.DataFrame(columns=[
-            "canonical_id", "canonical_name", "aliases", "first_date", "last_date", "n_names",
-        ])
+    itself), first_date, last_date, n_names.
+
+    No separate empty-input early return: every real caller passes
+    `canonicalize_themes()`'s output, which always carries a `canonical_id`
+    column (its own empty-input path attaches one — see that function). An
+    empty frame shaped that way produces zero groupby groups, so `rows`
+    stays empty and the `if not rows:` branch below already returns the
+    identical empty frame. (A bare `pd.DataFrame()` with no `canonical_id`
+    column at all would raise on the groupby below, same as it always has —
+    not a new failure mode, and not a shape any caller passes.)"""
     g = canon_df.groupby("canonical_id")
     rows = []
     for cid, grp in g:
