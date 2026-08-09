@@ -210,13 +210,13 @@ with t1:
             textposition="top center",
             textfont=dict(size=12, color="#1565C0")
         )
-        st.plotly_chart(style_chart(fig), use_container_width=True, config={'displayModeBar': False}, key="summ_trend")
+        st.plotly_chart(style_chart(fig), width='stretch', config={'displayModeBar': False}, key="summ_trend")
 
     with col_sun:
         st.subheader("Allocation Hierarchy")
         fig_sun = px.sunburst(latest, path=['Bucket', 'Account'], values='Total Value')
         fig_sun.update_traces(textinfo="label+percent entry")
-        st.plotly_chart(style_chart(fig_sun), use_container_width=True, config={'displayModeBar': False}, key="summ_sun")
+        st.plotly_chart(style_chart(fig_sun), width='stretch', config={'displayModeBar': False}, key="summ_sun")
 
     # Global Risk
     st.subheader("Global Risk Monitor")
@@ -240,7 +240,7 @@ with t1:
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"], name='Peak', line=dict(dash='dash', color='#9E9E9E')))
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"]*0.93, name='-7%', line=dict(dash='dot', color='#FFB74D')))
     fig_risk.add_trace(go.Scatter(x=d_tot["Date"], y=d_tot["Peak"]*0.85, name='-15%', line=dict(dash='dot', color='#E53935')))
-    st.plotly_chart(style_chart(fig_risk), use_container_width=True, config={'displayModeBar': False}, key="summ_risk")
+    st.plotly_chart(style_chart(fig_risk), width='stretch', config={'displayModeBar': False}, key="summ_risk")
 
 # TAB 2: TRENDS
 with t2:
@@ -287,7 +287,7 @@ with t2:
             
             fig = style_chart(fig)
             fig.update_layout(barmode='group')
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"tr_{i}")
+            st.plotly_chart(fig, width='stretch', config={'displayModeBar': False}, key=f"tr_{i}")
             st.divider()
 
 # TAB 3: ALLOCATION
@@ -297,7 +297,7 @@ with t3:
         st.subheader("Visual Breakdown")
         fig_s = px.sunburst(latest, path=['Bucket', 'Account'], values='Total Value')
         fig_s.update_traces(textinfo="label+percent entry")
-        st.plotly_chart(style_chart(fig_s), use_container_width=True, config={'displayModeBar': False}, key="alloc_sun")
+        st.plotly_chart(style_chart(fig_s), width='stretch', config={'displayModeBar': False}, key="alloc_sun")
     with c_r:
         st.subheader("Data Table")
         piv = latest.groupby("Bucket")[["Total Value","Cash"]].sum().sort_values("Total Value", ascending=False).reset_index()
@@ -324,7 +324,7 @@ with t3:
             ))
         ])
         fig_table.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=400)
-        st.plotly_chart(fig_table, use_container_width=True, config={'displayModeBar': False}, key="alloc_table")
+        st.plotly_chart(fig_table, width='stretch', config={'displayModeBar': False}, key="alloc_table")
 
 # TAB 4: RISK
 with t4:
@@ -352,4 +352,4 @@ with t4:
                 
                 fig = style_chart(fig)
                 fig.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"risk_{i}")
+                st.plotly_chart(fig, width='stretch', config={'displayModeBar': False}, key=f"risk_{i}")

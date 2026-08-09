@@ -163,7 +163,7 @@ def render_bump() -> None:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         showlegend=True,
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
     # Member preview strip — same batched lookup pattern as theme_grid.py.
     latest_tickers: dict[str, tuple] = {}

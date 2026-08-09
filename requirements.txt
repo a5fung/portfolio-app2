@@ -1,6 +1,16 @@
-streamlit
-pandas
-plotly
-yfinance
-streamlit-javascript
-anthropic
+# Pinned #552 (2026-08-09). Streamlit Cloud re-resolves this file on every
+# environment rebuild (rebuilds fire for reasons outside our control), so an
+# unpinned line lets Cloud silently swap in a newer runtime underneath a
+# working app. That already happened once: use_container_width's removal
+# window opened 2025-12-31 and could land in any newer streamlit release.
+# Verified together: pip install (no resolver conflicts) + full app run
+# (Python 3.14 locally, devcontainer targets 3.11 — both >= the 3.11 floor
+# these pins need) + `pytest -q` (64 passed) + all six Apollo Themes sidebar
+# views + Apollo Trades page rendered via st.testing.v1.AppTest with zero
+# exceptions, against these exact versions in a clean venv.
+streamlit==1.59.2
+pandas==3.0.3
+plotly==6.9.0
+yfinance==1.5.1
+streamlit-javascript==0.1.5
+anthropic==0.117.0

@@ -165,5 +165,5 @@ def render_forward() -> None:
                 show[c] = show[c].apply(lambda v: f"{v:.1f}" if pd.notna(v) else "—")
             elif c.startswith("Rank"):
                 show[c] = show[c].apply(lambda v: f"#{int(v)}" if pd.notna(v) else "—")
-        st.dataframe(show, use_container_width=True, hide_index=True,
+        st.dataframe(show, width='stretch', hide_index=True,
                      height=min(560, 60 + 36 * len(show)))

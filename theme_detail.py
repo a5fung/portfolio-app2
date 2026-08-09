@@ -96,7 +96,7 @@ def _rs_arc_chart(arc: pd.DataFrame) -> go.Figure:
 def render_detail() -> None:
     back_col, header_col = st.columns([1, 6])
     with back_col:
-        if st.button("← Back to grid", use_container_width=True):
+        if st.button("← Back to grid", width='stretch'):
             st.session_state["view"] = "Grid"
             st.rerun()
     with header_col:
@@ -147,9 +147,9 @@ def render_detail() -> None:
     # Arcs
     col_a, col_b = st.columns(2)
     with col_a:
-        st.plotly_chart(_rank_arc_chart(detail["arc"]), use_container_width=True)
+        st.plotly_chart(_rank_arc_chart(detail["arc"]), width='stretch')
     with col_b:
-        st.plotly_chart(_rs_arc_chart(detail["arc"]), use_container_width=True)
+        st.plotly_chart(_rs_arc_chart(detail["arc"]), width='stretch')
 
     st.divider()
 
@@ -182,7 +182,7 @@ def render_detail() -> None:
                 "sector": "Sector",
                 "close": "Close",
             })[["Ticker", "RS", "Univ rank", "Sector", "Close"]]
-            st.dataframe(display_members, use_container_width=True, hide_index=True,
+            st.dataframe(display_members, width='stretch', hide_index=True,
                          height=min(560, 60 + 36 * len(display_members)))
             st.caption(f"_RS scores as of {detail['members_as_of']}._")
 
@@ -230,7 +230,7 @@ def render_detail() -> None:
             "overlap_pct": "Overlap",
             "shared_tickers": "Shared tickers",
         })[["Theme", "Stage", "RS", "Overlap", "Shared", "Members", "Shared tickers"]]
-        st.dataframe(corr_display, use_container_width=True, hide_index=True,
+        st.dataframe(corr_display, width='stretch', hide_index=True,
                      height=min(360, 60 + 36 * len(corr_display)))
         st.caption(
             "💡 High overlap is one signal of theme-engine fragmentation — "

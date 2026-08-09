@@ -427,7 +427,7 @@ with tab1:
             
             st.plotly_chart(
                 style_chart(fig), 
-                use_container_width=True, 
+                width='stretch', 
                 config=CHART_CONFIG, 
                 key="summ_trend"
             )
@@ -446,7 +446,7 @@ with tab1:
             
             st.plotly_chart(
                 style_chart(fig_sun), 
-                use_container_width=True, 
+                width='stretch', 
                 config=CHART_CONFIG, 
                 key="summ_sun"
             )
@@ -476,7 +476,7 @@ with tab1:
         
         st.plotly_chart(
             fig_risk, 
-            use_container_width=True, 
+            width='stretch', 
             config=CHART_CONFIG, 
             key="summ_risk"
         )
@@ -562,7 +562,7 @@ with tab2:
                 
                 st.plotly_chart(
                     fig, 
-                    use_container_width=True, 
+                    width='stretch', 
                     config=CHART_CONFIG, 
                     key=f"trend_{i}"
                 )
@@ -588,7 +588,7 @@ with tab3:
             
             st.plotly_chart(
                 style_chart(fig_sunburst), 
-                use_container_width=True, 
+                width='stretch', 
                 config=CHART_CONFIG, 
                 key="alloc_sun"
             )
@@ -630,7 +630,7 @@ with tab3:
             
             st.plotly_chart(
                 fig_table, 
-                use_container_width=True, 
+                width='stretch', 
                 config=CHART_CONFIG, 
                 key="alloc_table"
             )
@@ -670,7 +670,7 @@ with tab4:
                     
                     st.plotly_chart(
                         fig, 
-                        use_container_width=True, 
+                        width='stretch', 
                         config=CHART_CONFIG, 
                         key=f"risk_{i}"
                     )

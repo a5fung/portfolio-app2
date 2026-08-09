@@ -932,7 +932,7 @@ with st.sidebar:
     st.markdown("### Filters")
     st.toggle("Privacy Mode", value=False, key="privacy_mode")
 
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("🔄 Refresh Data", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 
@@ -978,7 +978,7 @@ with st.sidebar:
         ann_date = st.date_input("Date", max_date, key="ann_date")
         ann_text = st.text_input("Note", key="ann_text", placeholder="What happened?")
 
-        if st.button("Add Note", use_container_width=True):
+        if st.button("Add Note", width='stretch'):
             if ann_text:
                 st.session_state.annotations[str(ann_date)] = ann_text
                 _save_annotations(st.session_state.annotations)
@@ -996,7 +996,7 @@ with st.sidebar:
         goal_label = st.text_input("Goal Name", value="", placeholder="e.g. Half Million")
         goal_target = st.number_input("Target ($)", min_value=0, step=10000, value=0)
 
-        if st.button("Add Goal", use_container_width=True):
+        if st.button("Add Goal", width='stretch'):
             if goal_target > 0:
                 st.session_state.goals.append({"target": int(goal_target), "label": goal_label or f"${goal_target:,.0f}"})
                 _save_goals(st.session_state.goals)
@@ -1371,7 +1371,7 @@ with tab1:
             yshift=14,
         )
     add_annotation_markers(fig, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
-    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="ov_growth")
+    st.plotly_chart(fig, width='stretch', config=CHART_CONFIG, key="ov_growth")
 
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
@@ -1410,7 +1410,7 @@ with tab1:
                 font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
             ))
             fig_bench.update_yaxes(tickprefix="", ticksuffix="%", tickformat="+.1f")
-            st.plotly_chart(fig_bench, use_container_width=True, config=CHART_CONFIG, key="ov_bench")
+            st.plotly_chart(fig_bench, width='stretch', config=CHART_CONFIG, key="ov_bench")
 
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
@@ -1422,7 +1422,7 @@ with tab1:
     fig_risk = drawdown_chart(daily_totals, wd_col="Cum_All_WD", height=300, show_labels=True)
     add_annotation_markers(fig_risk, fdf["Date"].min(), fdf["Date"].max(), st.session_state.get("annotations", {}))
     st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Total Portfolio</div>', unsafe_allow_html=True)
-    st.plotly_chart(fig_risk, use_container_width=True, config=CHART_CONFIG, key="ov_risk")
+    st.plotly_chart(fig_risk, width='stretch', config=CHART_CONFIG, key="ov_risk")
 
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True) # Spacer
 
@@ -1436,7 +1436,7 @@ with tab1:
         fig_growth = drawdown_chart(daily_growth, wd_col="Cum_All_WD", height=300, show_labels=True)
         # We can add a specific color override if you want Growth to look 'hotter', 
         # but for now we keep the uniform "HUD" style.
-        st.plotly_chart(fig_growth, use_container_width=True, config=CHART_CONFIG, key="risk_growth")
+        st.plotly_chart(fig_growth, width='stretch', config=CHART_CONFIG, key="risk_growth")
         st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
     # STABLE RISK
@@ -1444,7 +1444,7 @@ with tab1:
     if not daily_stable.empty:
         st.markdown(f'<div style="font-size: 12px; font-weight: 600; color: {C["text_muted"]}; margin-bottom: 4px;">Stable Bucket</div>', unsafe_allow_html=True)
         fig_stable = drawdown_chart(daily_stable, wd_col="Cum_All_WD", height=300, show_labels=True)
-        st.plotly_chart(fig_stable, use_container_width=True, config=CHART_CONFIG, key="risk_stable")
+        st.plotly_chart(fig_stable, width='stretch', config=CHART_CONFIG, key="risk_stable")
 
     # ── Monthly Returns Heatmap ──
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
@@ -1517,7 +1517,7 @@ with tab1:
         fig_lt.update_xaxes(dtick="M12", tickformat="%Y")
         fig_lt.update_yaxes(showticklabels=False, showgrid=False)
         fig_lt.update_layout(hovermode=False, margin=dict(l=0, r=0, t=10, b=28))
-        st.plotly_chart(fig_lt, use_container_width=True, config=CHART_CONFIG, key="lt_curve")
+        st.plotly_chart(fig_lt, width='stretch', config=CHART_CONFIG, key="lt_curve")
 
 
 # ═══════════════════════════════════════════
@@ -1619,7 +1619,7 @@ with tab2:
         font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
     ))
     fig_norm.update_yaxes(tickprefix="", tickformat=",.0f")
-    st.plotly_chart(fig_norm, use_container_width=True, config=CHART_CONFIG, key="perf_norm")
+    st.plotly_chart(fig_norm, width='stretch', config=CHART_CONFIG, key="perf_norm")
     st.markdown("")
 
     section_label("Account Performance")
@@ -1703,7 +1703,7 @@ with tab2:
             fig.update_yaxes(title_text="", showgrid=True, gridcolor=C["grid"], gridwidth=1, tickfont=dict(color=C["text_dim"]), secondary_y=False)
             fig.update_yaxes(title_text="", showgrid=False, tickformat="+.1f", ticksuffix="%", tickfont=dict(color=line_color), secondary_y=True)
 
-            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"perf_{i}")
+            st.plotly_chart(fig, width='stretch', config=CHART_CONFIG, key=f"perf_{i}")
 
             # Divider between accounts, not after last
             if i < len(account_order) - 1:
@@ -1731,7 +1731,7 @@ with tab3:
             paper_bgcolor="rgba(0,0,0,0)",
             font=dict(color=C["text"]),
         )
-        st.plotly_chart(fig_sun, use_container_width=True, config=CHART_CONFIG, key="alloc_sun")
+        st.plotly_chart(fig_sun, width='stretch', config=CHART_CONFIG, key="alloc_sun")
 
     with col_table:
         section_label("By Bucket")
@@ -1745,7 +1745,7 @@ with tab3:
         display_pivot["Allocation"] = display_pivot["Allocation"].apply(lambda x: _mask(f"{x:.1f}%", "pct"))
 
         st.dataframe(
-            display_pivot, use_container_width=True, hide_index=True, height=400,
+            display_pivot, width='stretch', hide_index=True, height=400,
         )
 
     # Bucket allocation over time
@@ -1767,7 +1767,7 @@ with tab3:
         font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
     ))
     fig_bt.update_yaxes(tickprefix="", ticksuffix="%", tickformat=".0f")
-    st.plotly_chart(fig_bt, use_container_width=True, config=CHART_CONFIG, key="alloc_trend")
+    st.plotly_chart(fig_bt, width='stretch', config=CHART_CONFIG, key="alloc_trend")
 
 # ═══════════════════════════════════════════
 # TAB 4: CASH FLOW
@@ -2184,7 +2184,7 @@ def render_cashflow_tab():
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color=C["text_sec"], size=12, family="Inter"),
         )
-        st.plotly_chart(fig_sankey, use_container_width=True, config=CHART_CONFIG, key="cf_sankey")
+        st.plotly_chart(fig_sankey, width='stretch', config=CHART_CONFIG, key="cf_sankey")
     else:
         st.caption("No transaction data for Sankey chart.")
 
@@ -2202,7 +2202,7 @@ def render_cashflow_tab():
         if all_expense_cats:
             budget_cat = st.selectbox("Category", all_expense_cats, key="budget_cat_select")
             budget_amt = st.number_input("Monthly Limit ($)", min_value=0, step=50, key="budget_amt_input")
-            if st.button("Save Budget", use_container_width=True, key="budget_save_btn"):
+            if st.button("Save Budget", width='stretch', key="budget_save_btn"):
                 if budget_amt > 0:
                     st.session_state.budgets[budget_cat] = budget_amt
                     _save_budgets(st.session_state.budgets)
@@ -2307,7 +2307,7 @@ def render_cashflow_tab():
                     showarrow=False,
                 )],
             )
-            st.plotly_chart(fig_donut, use_container_width=True, config=CHART_CONFIG, key="cf_donut")
+            st.plotly_chart(fig_donut, width='stretch', config=CHART_CONFIG, key="cf_donut")
 
         with col_legend:
             items_html = ""
@@ -2375,7 +2375,7 @@ def render_cashflow_tab():
             font=dict(color=C["text_muted"], size=11), bgcolor="rgba(0,0,0,0)",
         ))
         fig_trend.update_xaxes(dtick="M1", tickformat="%b '%y")
-        st.plotly_chart(fig_trend, use_container_width=True, config=CHART_CONFIG, key="cf_trend")
+        st.plotly_chart(fig_trend, width='stretch', config=CHART_CONFIG, key="cf_trend")
 
     st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
 
@@ -2610,7 +2610,7 @@ with tab5:
 
                     fig_curve = style_chart(fig_curve, height=320)
                     fig_curve.update_yaxes(tickprefix="$", showgrid=True, gridcolor=C["grid"])
-                    st.plotly_chart(fig_curve, use_container_width=True, config=CHART_CONFIG)
+                    st.plotly_chart(fig_curve, width='stretch', config=CHART_CONFIG)
             else:
                 st.caption("No closed trades to plot.")
 
@@ -2630,7 +2630,7 @@ with tab5:
                     textposition="auto"
                 ))
                 fig_setup = style_chart(fig_setup, height=320)
-                st.plotly_chart(fig_setup, use_container_width=True, config=CHART_CONFIG)
+                st.plotly_chart(fig_setup, width='stretch', config=CHART_CONFIG)
 
         st.markdown('<div style="height: 32px;"></div>', unsafe_allow_html=True)
 
@@ -2667,7 +2667,7 @@ with tab5:
                     "Shares": st.column_config.NumberColumn("Size", format=_nf),
                 },
                 hide_index=True,
-                use_container_width=True,
+                width='stretch',
                 height=400
             )
         else:

@@ -435,7 +435,7 @@ else:
                 margin=dict(l=10, r=10, t=40, b=10),
                 height=max(180, 60 + 50 * len(grid_dates)),
             )
-            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+            st.plotly_chart(fig, width='stretch', config=CHART_CONFIG)
 
 # ── Setup stats ─────────────────────────────────────────────────────────────
 st.subheader("Setup-tagged stats")
@@ -507,7 +507,7 @@ else:
                         showticklabels=False,
                     ),
                 )
-                st.plotly_chart(fig_r, use_container_width=True, config=CHART_CONFIG)
+                st.plotly_chart(fig_r, width='stretch', config=CHART_CONFIG)
             # Bottom stats row
             pf = row["profit_factor"]
             exp_v = row["expectancy"]
@@ -561,7 +561,7 @@ else:
     })
 
     st.dataframe(
-        display, use_container_width=True, hide_index=True,
+        display, width='stretch', hide_index=True,
         column_config={
             "Strategy": st.column_config.TextColumn(width="small"),
             "Trades": st.column_config.NumberColumn(width="small"),
@@ -711,7 +711,7 @@ else:
                 font=dict(color=C["text"], size=12),
             ),
         )
-        st.plotly_chart(ex_fig, use_container_width=True, config=CHART_CONFIG)
+        st.plotly_chart(ex_fig, width='stretch', config=CHART_CONFIG)
 
     with ex_col2:
         ex_stats = excursion_stats(closed_df)
@@ -743,7 +743,7 @@ else:
             )
             st.dataframe(
                 ex_stats_disp,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 column_config={
                     "Strategy": st.column_config.TextColumn(width="small"),
@@ -816,7 +816,7 @@ if not closed_df.empty:
         ),
         showlegend=False,
     )
-    st.plotly_chart(fig_eq, use_container_width=True, config=CHART_CONFIG)
+    st.plotly_chart(fig_eq, width='stretch', config=CHART_CONFIG)
 else:
     st.info("No closed trades for equity curve.")
 
@@ -849,21 +849,21 @@ if not closed_df.empty:
     with bc:
         st.markdown(f"**Top 10 by P&L**")
         top_pnl = closed_df.nlargest(10, "total_pnl")
-        st.dataframe(_format_bw(top_pnl), use_container_width=True, hide_index=True, height=380)
+        st.dataframe(_format_bw(top_pnl), width='stretch', hide_index=True, height=380)
     with wc:
         st.markdown(f"**Bottom 10 by P&L**")
         bot_pnl = closed_df.nsmallest(10, "total_pnl")
-        st.dataframe(_format_bw(bot_pnl), use_container_width=True, hide_index=True, height=380)
+        st.dataframe(_format_bw(bot_pnl), width='stretch', hide_index=True, height=380)
 
     bc2, wc2 = st.columns(2)
     with bc2:
         st.markdown(f"**Top 10 by R-multiple**")
         top_r = closed_df.nlargest(10, "r_multiple")
-        st.dataframe(_format_bw(top_r), use_container_width=True, hide_index=True, height=380)
+        st.dataframe(_format_bw(top_r), width='stretch', hide_index=True, height=380)
     with wc2:
         st.markdown(f"**Bottom 10 by R-multiple**")
         bot_r = closed_df.nsmallest(10, "r_multiple")
-        st.dataframe(_format_bw(bot_r), use_container_width=True, hide_index=True, height=380)
+        st.dataframe(_format_bw(bot_r), width='stretch', hide_index=True, height=380)
 else:
     st.info("No closed trades for best/worst panel.")
 
@@ -911,7 +911,7 @@ if not closed_df.empty and closed_df["holding_days"].notna().any():
             bgcolor="rgba(0,0,0,0)",
         ),
     )
-    st.plotly_chart(fig_h, use_container_width=True, config=CHART_CONFIG)
+    st.plotly_chart(fig_h, width='stretch', config=CHART_CONFIG)
 
     # Median lines text
     med_w = wins_h.median() if len(wins_h) else None
@@ -976,7 +976,7 @@ with st.expander(f"Trade-level drill-down ({len(df)} trades · click to expand)"
 
     st.dataframe(
         drill_disp.sort_values("Date", ascending=False),
-        use_container_width=True, hide_index=True, height=500,
+        width='stretch', hide_index=True, height=500,
     )
 
 # ── Footer ──────────────────────────────────────────────────────────────────

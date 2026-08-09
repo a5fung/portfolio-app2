@@ -296,7 +296,7 @@ def render_flow() -> None:
         paper_bgcolor=P["chart_paper"], plot_bgcolor=P["chart_plot"],
         font=dict(size=12, color=P["chart_font"]),
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
     st.caption(
         f"Rows top→bottom: {' · '.join(_BAND_ORDER)}. Latest week **{weeks[-1]}**, "
@@ -332,7 +332,7 @@ def render_flow() -> None:
     if moves:
         moves_df = pd.DataFrame(moves).sort_values("_mag", ascending=False).drop(columns="_mag")
         with st.expander(f"Band changes, {last_w0} → {last_w1} ({len(moves_df)})"):
-            st.dataframe(moves_df, use_container_width=True, hide_index=True)
+            st.dataframe(moves_df, width='stretch', hide_index=True)
 
     # Top members of the CURRENT Top-5 band only — mirrors theme_bump.py's
     # "current members" expander, scoped tight (5 cohorts) instead of the
