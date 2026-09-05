@@ -1,16 +1,16 @@
-"""Pin test for theme_canon.py (#315 R3 — cross-day theme canonicalization).
+"""Pin test for theme_canon.py — cohort identity (#315 R3; model rewrite #555/#553).
 
-Each `TestCanonicalizeThemes` case below is a synthetic, hand-built fixture
-that reproduces a specific failure mode found by running earlier drafts of
-`canonicalize_themes()` against the real `apollo_themes_snapshot.json` (see
-that module's docstring for the full story + real theme names). Pinning them
-as small fixtures here keeps the regression check fast and independent of the
-live snapshot, which grows and drifts daily.
+`TestCanonicalizeThemes` pins the MODEL on small synthetic fixtures. Fixture
+names are load-bearing: the model's second axis is the theme DESCRIPTION
+(two names must share a subject word for a rename to count), so every
+fixture uses realistic theme names, not "Theme A" / "Theme B".
 
-`TestLiveSnapshotSmoke` is the one test that touches the real committed
-snapshot — a shape/sanity check (no exceptions, canonical ids collapse SOME
-raw names, every row gets an id), not an exact-cohort pin, since the live
-data changes every night.
+`TestRealSnapshot*` runs against the real committed `apollo_themes_snapshot.json`:
+the three false merges the operator evidenced (#553) stay split ACROSS THE
+FULL SERIES, the one true duplicate stays merged on every day it appears,
+plus the newly found same-day absorb and the false non-merges the old
+matcher produced. `test_grid_output_unchanged` is the hard constraint: the
+Grid view's own dedup is byte-identical to the pre-#553 original.
 """
 from __future__ import annotations
 
@@ -19,7 +19,13 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 
-from theme_canon import canonicalize_themes, cohort_aliases, _jaccard
+from theme_canon import (
+    _NON_SUBJECT_WORDS,
+    _jaccard,
+    _subject_words,
+    canonicalize_themes,
+    cohort_aliases,
+)
 
 
 def _df(rows: list[tuple[date, str, list[str]]]) -> pd.DataFrame:
@@ -33,23 +39,38 @@ def _d(offset: int) -> date:
     return D0 + timedelta(days=offset)
 
 
-class TestJaccardHelper:
-    def test_disjoint_is_zero(self):
+def _cids(out: pd.DataFrame, name: str) -> set[str]:
+    return set(out.loc[out["name"] == name, "canonical_id"])
+
+
+class TestHelpers:
+    def test_jaccard(self):
         assert _jaccard(frozenset({"A"}), frozenset({"B"})) == 0.0
-
-    def test_empty_is_zero(self):
         assert _jaccard(frozenset(), frozenset({"A"})) == 0.0
-
-    def test_known_ratio(self):
         a, b = frozenset({"A", "B", "C"}), frozenset({"B", "C", "D"})
-        assert _jaccard(a, b) == pytest.approx(0.5)   # 2 shared / 4 union
+        assert _jaccard(a, b) == pytest.approx(0.5)
+
+    def test_subject_words_drop_form_size_and_narrative_words(self):
+        # "Services" / "Pure-Play" / "Recovery" describe the form, size and
+        # story of a basket, not its subject — they never make two names agree.
+        assert _subject_words("Space Launch & Orbital Services") == {"space", "launch", "orbital"}
+        assert _subject_words("Pure-Play Hydraulic Fracturing & Completion Services") == {
+            "hydraulic", "fracturing", "completion",
+        }
+        assert _subject_words("Crypto Recovery") == {"crypto"}
+        assert "manufacturing" in _NON_SUBJECT_WORDS
+
+    def test_subject_words_singularize_and_split_hyphens(self):
+        assert _subject_words("Engineered Polymers") == _subject_words("Engineered Polymer")
+        assert _subject_words("Gene-Editing Therapeutics") == _subject_words("Gene Editing Therapeutics")
+        assert "gas" in _subject_words("Oil & Gas")   # 3-letter words are never stripped
 
 
 class TestCanonicalizeThemes:
     def test_empty_input(self):
         out = canonicalize_themes(_df([]))
         assert out.empty
-        assert list(out.columns) >= []  # just must not raise
+        assert "canonical_id" in out.columns
 
     def test_simple_rename_same_tickers_merges(self):
         # The core R3 case: identical membership, name churns day to day.
@@ -60,17 +81,13 @@ class TestCanonicalizeThemes:
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 1
         assert out["canonical_name"].nunique() == 1
-        # canonical_name is the freshest description, not the oldest.
-        assert out["canonical_name"].iloc[0] == "U.S. Government/Defense Contract Surge"
 
     def test_one_member_drift_still_merges(self):
-        # "gains or loses one member" (task spec) on an 8-ticker cohort — a
-        # small fractional change, should NOT fragment the lineage.
         base = ["A", "B", "C", "D", "E", "F", "G", "H"]
         drifted = ["A", "B", "C", "D", "E", "F", "G", "I"]   # H -> I
         df = _df([
-            (_d(0), "Theme Alpha", base),
-            (_d(1), "Theme Alpha Redux", drifted),
+            (_d(0), "Optical Networking & Photonics Infrastructure", base),
+            (_d(1), "Optical Networking & AI Data Transmission Infrastructure", drifted),
         ])
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 1
@@ -83,130 +100,262 @@ class TestCanonicalizeThemes:
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 2
 
+    def test_superset_under_unrelated_name_is_a_different_theme(self):
+        # THE CRUX (#553 evidence #1, real geometry): an established 4-ticker
+        # theme, then a 6-ticker superset under a name that shares no subject
+        # word. Membership alone says "same basket, grown" (Jaccard 0.67);
+        # the description says the newcomers are the point. Different theme.
+        df = _df([
+            (_d(0), "U.S. Defense Primes & Aerospace", ["GD", "LMT", "NOC", "RTX"]),
+            (_d(1), "U.S. Defense Primes & Aerospace", ["GD", "LMT", "NOC", "RTX"]),
+            (_d(2), "Satellite Mobile & IoT Connectivity Services",
+             ["GD", "IRDM", "LMT", "NOC", "PL", "RTX"]),
+        ])
+        out = canonicalize_themes(df)
+        assert out["canonical_id"].nunique() == 2
+
+    def test_superset_under_compatible_name_is_a_rename(self):
+        # Same geometry as above, but the new name still describes the old
+        # members ("...Intermediates" both times) — a rename, one cohort.
+        df = _df([
+            (_d(0), "Niche Specialty Chemicals & Industrial Intermediates",
+             ["ASIX", "CC", "CE", "LXU", "RYAM"]),
+            (_d(1), "Niche Specialty Chemicals & Industrial Intermediates",
+             ["ASIX", "CC", "CE", "LXU", "RYAM"]),
+            (_d(2), "Nylon & Engineered Polymer Intermediates",
+             ["ASIX", "CC", "CE", "DOW", "LXU", "LYB", "RYAM"]),
+        ])
+        out = canonicalize_themes(df)
+        assert out["canonical_id"].nunique() == 1
+
+    def test_identical_tiny_basket_under_unrelated_names_stays_split(self):
+        # #553 evidence #2, real tickers: {ADEA, RYAM} was emitted as both an
+        # ad-tech theme and a chemicals theme. An identical basket is NOT
+        # enough when the descriptions contradict — that is the false merge.
+        df = _df([
+            (_d(0), "IP Licensing & Ad-Tech Royalty Software", ["ADEA", "RYAM"]),
+            (_d(1), "Niche Specialty Chemicals & Industrial Intermediates", ["ADEA", "RYAM"]),
+        ])
+        out = canonicalize_themes(df)
+        assert out["canonical_id"].nunique() == 2
+
+    def test_identical_tiny_basket_under_compatible_names_merges(self):
+        # ...whereas an identical 2-ticker basket whose names share a subject
+        # word is one theme ("Cybersecurity Network Edge" / "Network Security
+        # & Zero-Trust Edge" ran side by side for 31 days in the snapshot).
+        df = _df([
+            (_d(0), "Cybersecurity Network Edge & SD-WAN", ["FTNT", "PANW"]),
+            (_d(0), "Network Security & Zero-Trust Edge", ["FTNT", "PANW"]),
+            (_d(1), "Cybersecurity Network Edge & SD-WAN", ["FTNT", "PANW"]),
+            (_d(1), "Network Security & Zero-Trust Edge", ["FTNT", "PANW"]),
+        ])
+        out = canonicalize_themes(df)
+        assert out["canonical_id"].nunique() == 1
+
     def test_tiny_set_fully_inside_huge_set_does_not_merge(self):
-        # Regression: containment-style scoring over-merges a small theme
-        # into an unrelated large one. Real example: "Oil & Gas" (6 tickers)
-        # fully contained 3-ticker sub-themes it had nothing to do with.
         huge = [f"T{i}" for i in range(12)]
         small = huge[:2]   # fully inside `huge`, but only 2/12 of it
         df = _df([
-            (_d(0), "Broad Basket Theme", huge),
-            (_d(1), "Narrow Sub Theme", small),
+            (_d(0), "Broad Energy Basket", huge),
+            (_d(1), "Narrow Energy Sub Theme", small),
         ])
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 2
 
     def test_one_ticker_reference_does_not_merge(self):
-        # Regression: a 1-ticker theme is not a real signature — any 2-ticker
-        # set sharing that ticker clears Jaccard 0.5 trivially. Real example:
         # "Crypto Recovery" ({CRCL}) vs "CLO & Structured Credit Income"
-        # ({CRCL, XFLT}).
+        # ({CRCL, XFLT}): Jaccard 0.5 on one shared stock, and the names
+        # share no subject word — unrelated themes that touch one stock.
         df = _df([
-            (_d(0), "Solo Ticker Theme", ["CRCL"]),
-            (_d(1), "Two Ticker Theme", ["CRCL", "XFLT"]),
+            (_d(0), "Crypto Recovery", ["CRCL"]),
+            (_d(1), "CLO & Structured Credit Income", ["CRCL", "XFLT"]),
         ])
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 2
 
-    def test_oversized_glitch_row_does_not_bridge_cohorts(self):
-        # Regression: an upstream data glitch briefly attaches a near-
-        # universe-wide basket to a normally-tiny theme for one day. That day
-        # must not let the tiny theme bridge to an unrelated large theme via
-        # ticker overlap on the huge sets.
-        tiny_before = ["BETR", "WLTH"]
-        glitch_day = [f"T{i}" for i in range(57)] + ["BETR", "WLTH"]
-        tiny_after = ["BETR", "WLTH"]
-        other_huge_theme = [f"T{i}" for i in range(50)]  # overlaps glitch_day heavily
+    def test_chain_of_plausible_hops_cannot_walk_the_core(self):
+        # #553 evidence #3 in miniature. Each hop clears 0.5 against the
+        # PREVIOUS observation; the second does not against the majority
+        # core, so the cohort stops there instead of walking away.
         df = _df([
-            (_d(0), "Robo-Advisor Platforms", tiny_before),
-            (_d(1), "Robo-Advisor Platforms", glitch_day),
-            (_d(2), "Robo-Advisor Platforms", tiny_after),
-            (_d(1), "Unrelated Mega Basket", other_huge_theme),
+            (_d(0), "Nitrogen Fertilizer Producers", ["A", "B", "C", "D", "E"]),
+            (_d(1), "Nitrogen Fertilizer Producers", ["A", "B", "C", "D", "E"]),
+            (_d(2), "Nitrogen & Crop Nutrient Producers", ["A", "B", "C", "D", "E", "F", "G"]),
+            (_d(3), "Crop Nutrient & Agri-Chemical Producers", ["C", "D", "E", "F", "G", "H", "I"]),
         ])
         out = canonicalize_themes(df)
-        robo_cids = set(out.loc[out["name"] == "Robo-Advisor Platforms", "canonical_id"])
-        mega_cid = out.loc[out["name"] == "Unrelated Mega Basket", "canonical_id"].iloc[0]
-        # The exact-name rows all stay one cohort (name continuation)...
-        assert len(robo_cids) == 1
-        # ...but that cohort must never equal the unrelated mega-basket's id.
-        assert mega_cid not in robo_cids
+        assert _cids(out, "Nitrogen & Crop Nutrient Producers") == _cids(out, "Nitrogen Fertilizer Producers")
+        assert _cids(out, "Crop Nutrient & Agri-Chemical Producers").isdisjoint(
+            _cids(out, "Nitrogen Fertilizer Producers")
+        )
 
     def test_exact_name_continues_through_low_overlap_day(self):
-        # A theme keeping its EXACT name should stay one cohort even when a
-        # single day's ticker overlap with the prior day would, on its own,
-        # fall short of the overlap threshold (membership can move a lot
-        # under a stable label — the name itself is the stronger signal).
+        # Under its own label a theme may widen or narrow around its core —
+        # the engine's continuity claim is honored.
         df = _df([
-            (_d(0), "Same Name Theme", ["A", "B", "C", "D", "E"]),
-            (_d(1), "Same Name Theme", ["A", "F"]),   # only 1/5 shared -> low Jaccard
+            (_d(0), "Gold & Silver Miners", ["A", "B", "C", "D", "E"]),
+            (_d(1), "Gold & Silver Miners", ["A", "F"]),   # only 1/5 shared
         ])
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 1
 
+    def test_label_reused_on_disjoint_basket_splits(self):
+        # ...but a label on a basket sharing NOTHING with the theme's core is
+        # a reused label ("Satellite Mobile" became four biotechs on 04-16).
+        df = _df([
+            (_d(0), "Satellite Mobile & IoT Connectivity Services", ["ASTS", "IRDM", "GSAT"]),
+            (_d(1), "Satellite Mobile & IoT Connectivity Services", ["ASTS", "IRDM", "GSAT"]),
+            (_d(2), "Satellite Mobile & IoT Connectivity Services", ["AVBP", "DAWN", "INKT", "RVMD"]),
+        ])
+        out = canonicalize_themes(df)
+        assert out["canonical_id"].nunique() == 2
+
+    def test_short_hijack_does_not_move_the_core(self):
+        # The engine attaches a 20-ticker foreign blob to a 2-ticker label for
+        # two days (the real "Independent Semiconductor Foundry" case). The
+        # blob days ride along under the label, but two of six observations
+        # are not a majority — the core stays {PLAB, TSEM}, so when another
+        # name carries that blob on a later day it cannot join the foundry
+        # cohort (its basket is nothing like the core), and the label's own
+        # 2-set continues it. (A basket that persists for MORE than half a
+        # cohort's life does become its core: the dashboard follows the
+        # engine's slot — see the module docstring. And on a hijack day
+        # itself, a second wording of the same emitted blob IS that day's
+        # duplicate — see test_same_day_second_wording_of_todays_basket.)
+        blob = [f"OPT{i}" for i in range(18)] + ["PLAB", "TSEM"]
+        df = _df([
+            (_d(0), "Independent Semiconductor Foundry & Specialty IC Manufacturing", ["PLAB", "TSEM"]),
+            (_d(1), "Independent Semiconductor Foundry & Specialty IC Manufacturing", ["PLAB", "TSEM"]),
+            (_d(2), "Independent Semiconductor Foundry & Specialty IC Manufacturing", ["PLAB", "TSEM"]),
+            (_d(3), "Independent Semiconductor Foundry & Specialty IC Manufacturing", blob),
+            (_d(4), "Independent Semiconductor Foundry & Specialty IC Manufacturing", blob),
+            (_d(5), "Independent Semiconductor Foundry & Specialty IC Manufacturing", ["PLAB", "TSEM"]),
+            (_d(5), "Compound Semiconductor & Specialty Photonic Materials", blob),
+        ])
+        out = canonicalize_themes(df)
+        foundry = _cids(out, "Independent Semiconductor Foundry & Specialty IC Manufacturing")
+        assert len(foundry) == 1
+        assert foundry.isdisjoint(_cids(out, "Compound Semiconductor & Specialty Photonic Materials"))
+
+    def test_oversized_glitch_row_does_not_bridge_cohorts(self):
+        # A 57-ticker glitch day on a tiny theme rides along under its label
+        # (shares its 2 tickers) but cannot pull in an unrelated mega basket.
+        tiny_before = ["BETR", "WLTH"]
+        glitch_day = [f"T{i}" for i in range(57)] + ["BETR", "WLTH"]
+        tiny_after = ["BETR", "WLTH"]
+        other_huge_theme = [f"T{i}" for i in range(50)]
+        df = _df([
+            (_d(0), "Robo-Advisor & AI-Driven Wealth Management Platforms", tiny_before),
+            (_d(1), "Robo-Advisor & AI-Driven Wealth Management Platforms", glitch_day),
+            (_d(2), "Robo-Advisor & AI-Driven Wealth Management Platforms", tiny_after),
+            (_d(1), "Large-Cap Upstream Oil & Gas E&P", other_huge_theme),
+        ])
+        out = canonicalize_themes(df)
+        robo_cids = _cids(out, "Robo-Advisor & AI-Driven Wealth Management Platforms")
+        mega_cid = out.loc[out["name"] == "Large-Cap Upstream Oil & Gas E&P", "canonical_id"].iloc[0]
+        assert len(robo_cids) == 1
+        assert mega_cid not in robo_cids
+
     def test_gap_beyond_horizon_does_not_merge(self):
         df = _df([
-            (_d(0), "Old Name", ["A", "B", "C"]),
-            (_d(30), "New Name", ["A", "B", "C"]),   # far beyond max_gap_days default (10)
+            (_d(0), "Uranium Miners", ["A", "B", "C"]),
+            (_d(30), "Uranium & Nuclear Fuel Miners", ["A", "B", "C"]),   # beyond max_gap_days (10)
         ])
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 2
 
     def test_old_name_retiring_hands_off_to_its_own_alias(self):
-        # A same-day near-duplicate ("New Name" is a subset of "Old Name")
-        # correctly becomes a same-day ALIAS of "Old Name" (the existing
-        # dedup_themes mechanism, unchanged) — that is not a hijack, it is
-        # the intra-day dedup this module deliberately reuses. The real test
-        # of the cross-day structural guard is what happens once "Old Name"
-        # stops being emitted: "New Name" (already tied to the cohort via
-        # its alias day) should carry the SAME identity forward, not fork
-        # into a second cohort.
+        # A same-day subset with a compatible name becomes an alias; once the
+        # old name stops being emitted the alias carries the SAME identity.
         df = _df([
-            (_d(0), "Old Name", ["A", "B", "C", "D", "E", "F"]),
-            (_d(1), "Old Name", ["A", "B", "C", "D", "E", "F"]),
-            (_d(1), "New Name", ["A", "B", "C"]),   # subset -> same-day alias of Old Name
-            (_d(2), "New Name", ["A", "B", "C"]),   # Old Name retires; New Name carries on
+            (_d(0), "Nitrogen Fertilizer & Ammonia Producers", ["A", "B", "C", "D", "E", "F"]),
+            (_d(1), "Nitrogen Fertilizer & Ammonia Producers", ["A", "B", "C", "D", "E", "F"]),
+            (_d(1), "Nitrogen Fertilizer Pure-Play Producers", ["A", "B", "C"]),
+            (_d(2), "Nitrogen Fertilizer Pure-Play Producers", ["A", "B", "C"]),
         ])
         out = canonicalize_themes(df)
         assert out["canonical_id"].nunique() == 1
 
     def test_unrelated_theme_sharing_the_alias_day_is_not_pulled_in(self):
-        # A THIRD, genuinely unrelated theme present on the same day as the
-        # Old/New handoff must not get swept into that cohort just because
-        # it co-occurred that day.
         df = _df([
-            (_d(0), "Old Name", ["A", "B", "C", "D", "E", "F"]),
-            (_d(1), "Old Name", ["A", "B", "C", "D", "E", "F"]),
-            (_d(1), "New Name", ["A", "B", "C"]),
-            (_d(1), "Unrelated Theme", ["X", "Y", "Z"]),
+            (_d(0), "Nitrogen Fertilizer & Ammonia Producers", ["A", "B", "C", "D", "E", "F"]),
+            (_d(1), "Nitrogen Fertilizer & Ammonia Producers", ["A", "B", "C", "D", "E", "F"]),
+            (_d(1), "Nitrogen Fertilizer Pure-Play Producers", ["A", "B", "C"]),
+            (_d(1), "Ophthalmology Drug Developers", ["X", "Y", "Z"]),
         ])
         out = canonicalize_themes(df)
-        old_cid = out.loc[out["name"] == "Old Name", "canonical_id"].iloc[0]
-        unrelated_cid = out.loc[out["name"] == "Unrelated Theme", "canonical_id"].iloc[0]
-        assert old_cid != unrelated_cid
+        assert _cids(out, "Nitrogen Fertilizer & Ammonia Producers").isdisjoint(
+            _cids(out, "Ophthalmology Drug Developers")
+        )
+
+    def test_same_day_second_wording_of_todays_basket_is_an_alias(self):
+        # A label that narrowed to 2 tickers for weeks (core = the 2) re-emits
+        # its old 5-ticker basket under two wordings on one day: the second
+        # wording matches today's representative row, not the core — still
+        # one theme that day (the real Bitcoin-mining case, 2026-07-17).
+        five = ["CIFR", "CORZ", "HUT", "IREN", "WULF"]
+        rows = [(_d(0), "Bitcoin Mining & Crypto Infrastructure Operators", five)]
+        rows += [(_d(i), "Bitcoin Mining & Crypto Infrastructure Operators", ["CIFR", "CORZ"]) for i in range(1, 6)]
+        rows += [
+            (_d(6), "Bitcoin Mining & Crypto Infrastructure Operators", five),
+            (_d(6), "Bitcoin & Crypto Mining Infrastructure", five),
+        ]
+        out = canonicalize_themes(_df(rows))
+        assert out["canonical_id"].nunique() == 1
+
+    def test_empty_ticker_row_attaches_by_name(self):
+        # The engine's Retired marker carries no tickers; it follows its name.
+        df = _df([
+            (_d(0), "U.S. Government/Defense Contract Surge", ["AMRC", "PLTR", "TSAT", "VOYG"]),
+            (_d(0), "U.S. Government/Defense Spending Surge", ["AMRC", "PLTR", "TSAT", "VOYG"]),
+            (_d(1), "U.S. Government/Defense Contract Surge", []),
+            (_d(1), "U.S. Government/Defense Spending Surge", []),
+        ])
+        out = canonicalize_themes(df)
+        assert out["canonical_id"].nunique() == 1
+
+    def test_canonical_name_ignores_a_one_day_visitor(self):
+        # Nine days of one name, then a single Retired-day visitor under a
+        # compatible name: the label stays with the name that recurred.
+        rows = [(_d(i), "Satellite Mobile & IoT Connectivity Services", ["GD", "IRDM", "LMT", "NOC", "PL", "RTX"]) for i in range(9)]
+        rows.append((_d(9), "Satellite & IoT Connectivity Operators", ["IRDM", "LMT", "NOC", "PL", "RTX"]))
+        out = canonicalize_themes(_df(rows))
+        assert out["canonical_id"].nunique() == 1
+        assert out["canonical_name"].iloc[0] == "Satellite Mobile & IoT Connectivity Services"
+
+    def test_canonical_name_follows_a_real_rename(self):
+        # ...but a rename that recurs takes over, so the label matches the
+        # name the board shows today.
+        rows = [(_d(i), "Packaged & Shelf-Stable Food Manufacturers", ["CAG", "CPB", "GIS", "KHC"]) for i in range(7)]
+        rows += [(_d(7 + i), "Branded Packaged Food & Consumer Staples Producers", ["CPB", "GIS", "KHC"]) for i in range(3)]
+        out = canonicalize_themes(_df(rows))
+        assert out["canonical_id"].nunique() == 1
+        assert out["canonical_name"].iloc[0] == "Branded Packaged Food & Consumer Staples Producers"
 
 
 class TestCohortAliases:
     def test_only_multi_name_cohorts_listed(self):
         df = _df([
-            (_d(0), "Solo Theme", ["A", "B", "C"]),
-            (_d(0), "Renamed A", ["X", "Y", "Z"]),
-            (_d(1), "Renamed B", ["X", "Y", "Z"]),
+            (_d(0), "Uranium Miners", ["A", "B", "C"]),
+            (_d(0), "Space Launch Services & Orbital Infrastructure", ["X", "Y", "Z"]),
+            (_d(1), "Space Launch & Orbital Services", ["X", "Y", "Z"]),
         ])
         canon = canonicalize_themes(df)
         aliases = cohort_aliases(canon)
         assert len(aliases) == 1
         row = aliases.iloc[0]
-        assert row["canonical_name"] == "Renamed B"
-        assert row["aliases"] == ["Renamed A"]
         assert row["n_names"] == 2
+        assert set(row["aliases"]) | {row["canonical_name"]} == {
+            "Space Launch Services & Orbital Infrastructure", "Space Launch & Orbital Services",
+        }
 
     def test_empty_when_no_merges(self):
-        df = _df([(_d(0), "Solo Theme", ["A", "B", "C"])])
+        df = _df([(_d(0), "Uranium Miners", ["A", "B", "C"])])
         canon = canonicalize_themes(df)
         assert cohort_aliases(canon).empty
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def raw_themes():
     import json
     import os
@@ -219,123 +368,77 @@ def raw_themes():
     return df
 
 
-class TestLiveSnapshotSmoke:
-    """Sanity check against the real committed snapshot — shape only, not an
-    exact-cohort pin (the live data grows/drifts every night)."""
-
-    def test_runs_without_raising_and_covers_every_row(self, raw_themes):
-        out = canonicalize_themes(raw_themes)
-        assert len(out) == len(raw_themes)
-        assert out["canonical_id"].notna().all()
-        assert out["canonical_name"].notna().all()
-
-    def test_some_collapsing_happens(self, raw_themes):
-        # The whole point of R3: at least some cohorts wore more than one raw
-        # name. NOTE: nunique(canonical_id) is NOT guaranteed to be less than
-        # nunique(name) overall — a single raw name can also independently
-        # recur as TWO unrelated cohorts months apart (the engine reusing a
-        # generic phrase for a different basket later), which is correct
-        # fragmentation, not a bug. The real "did canonicalization do
-        # anything" check is: some cohort merged >1 distinct name.
-        out = canonicalize_themes(raw_themes)
-        assert not cohort_aliases(out).empty
+@pytest.fixture(scope="module")
+def canon(raw_themes):
+    return canonicalize_themes(raw_themes)
 
 
-class TestRealSnapshotOverMergeRegressions:
-    """#553 — cohort matching glued unrelated themes together. Pins the 3
-    confirmed-bad merges as separated and the 1 real duplicate as still
-    merged, using REAL ticker sets from the committed snapshot (not toy
-    fixtures) — found by instrumenting every merge decision against the live
-    data, see theme_canon.py's module docstring "#553 fix" section for the
-    full mechanism-by-mechanism story."""
+class TestRealSnapshotSmoke:
+    def test_runs_without_raising_and_covers_every_row(self, raw_themes, canon):
+        assert len(canon) == len(raw_themes)
+        assert canon["canonical_id"].notna().all()
+        assert canon["canonical_name"].notna().all()
 
-    @staticmethod
-    def _cids(out: pd.DataFrame, name: str) -> set[str]:
-        return set(out.loc[out["name"] == name, "canonical_id"])
+    def test_some_collapsing_happens(self, canon):
+        assert not cohort_aliases(canon).empty
 
-    def test_satellite_mobile_does_not_absorb_defense_primes(self, raw_themes):
-        # Bug: "Satellite Mobile & IoT Connectivity Services" absorbed "U.S.
-        # Defense Primes & Aerospace" ({GD, LMT, NOC, RTX}) via Tier 2 on
-        # first contact at Jaccard 0.667 (2026-03-25) — a brand-new name
-        # grabbing a cohort it had never touched, on partial overlap alone.
-        # The ORIGINAL 4-ticker capture (2026-03-19..03-24, before the
-        # hijack) must now stay its own identity for its whole run.
-        out = canonicalize_themes(raw_themes)
-        dp_original = out[
-            (out["name"] == "U.S. Defense Primes & Aerospace")
-            & (out["theme_date"] <= date(2026, 3, 24))
-        ]
-        assert not dp_original.empty
-        dp_cids = set(dp_original["canonical_id"])
-        sat_cids = self._cids(out, "Satellite Mobile & IoT Connectivity Services")
-        assert dp_cids.isdisjoint(sat_cids), (
-            f"Defense Primes {dp_cids} and Satellite Mobile {sat_cids} still share an id"
-        )
 
-    def test_niche_specialty_chemicals_does_not_fuse_with_ip_licensing(self, raw_themes):
-        # Bug: "Niche Specialty Chemicals & Industrial Intermediates" and two
-        # IP-licensing/ad-tech names both reduced to the identical 2-ticker
-        # {ADEA, RYAM} set at different points and merged via Tier 2's
-        # min_shared relaxation (2/2 "full" match on a signature too small to
-        # trust — same shape as the already-guarded 1-ticker CRCL/XFLT case).
-        out = canonicalize_themes(raw_themes)
-        chem_cids = self._cids(out, "Niche Specialty Chemicals & Industrial Intermediates")
-        ip1_cids = self._cids(out, "IP Licensing & Ad-Tech Royalty Software")
-        ip2_cids = self._cids(
-            out, "IP Licensing & Patent Monetization Software Platforms"
-        )
-        assert chem_cids.isdisjoint(ip1_cids)
-        assert chem_cids.isdisjoint(ip2_cids)
+class TestRealSnapshotIdentity:
+    """#553 DoD, measured across the FULL series (the 2026-08-10 verify
+    showed the old matcher only fixed each case for part of its run)."""
 
-    def test_nitrogen_chemicals_nylon_chain_does_not_collapse_to_one_identity(
-        self, raw_themes
-    ):
-        # Bug: "Nitrogen & Specialty Crop Nutrient Producers" + "Niche
-        # Specialty Chemicals & Industrial Intermediates" + "Nylon &
-        # Engineered Polymer Intermediates" chain-merged onto ONE canonical
-        # id — each day's Tier 2 hop looked individually plausible (Jaccard
-        # 0.7-1.0 against whatever the cohort currently held) while the
-        # cumulative walk drifted from a 5-ticker specialty-chemicals cohort
-        # to a 15-ticker nitrogen-fertilizer/agri-business basket sharing
-        # only one ticker with where it started. The anchor-set check (Fix D)
-        # must stop all three names from EVER sharing a single canonical_id.
-        out = canonicalize_themes(raw_themes)
-        nitro_cids = self._cids(out, "Nitrogen & Specialty Crop Nutrient Producers")
-        chem_cids = self._cids(out, "Niche Specialty Chemicals & Industrial Intermediates")
-        nylon_cids = self._cids(out, "Nylon & Engineered Polymer Intermediates")
-        assert not (nitro_cids & chem_cids & nylon_cids), (
-            "all three raw names still share at least one canonical_id"
-        )
-        # Strongest, cleanest separation the fix actually achieves: Nitrogen
-        # (the fertilizer/agri cluster) never touches the chemicals cluster
-        # at all, in either of its two names.
-        assert nitro_cids.isdisjoint(chem_cids)
+    def test_satellite_mobile_never_shares_a_cohort_with_defense_primes(self, canon):
+        sat = _cids(canon, "Satellite Mobile & IoT Connectivity Services")
+        dp = _cids(canon, "U.S. Defense Primes & Aerospace")
+        assert sat and dp and sat.isdisjoint(dp)
+        # ...and the nine March-April rows are shown under their own name.
+        early = canon[(canon["name"] == "Satellite Mobile & IoT Connectivity Services")
+                      & (canon["theme_date"] <= date(2026, 4, 8))]
+        assert (early["canonical_name"] == "Satellite Mobile & IoT Connectivity Services").all()
 
-    def test_defense_spending_and_contract_surge_still_merge(self, raw_themes):
-        # The REAL duplicate the whole feature exists to catch — must
-        # survive every #553 guard. Both rows are the SAME day (2026-08-04),
-        # identical 4-ticker set {AMRC, PLTR, TSAT, VOYG} — an intra-day
-        # dedup_themes merge (Jaccard 1.0), never touched by any Tier 2
-        # guard, so it should be untouched by this fix by construction.
-        out = canonicalize_themes(raw_themes)
-        d0 = date(2026, 8, 4)
-        spending = out[
-            (out["name"] == "U.S. Government/Defense Spending Surge")
-            & (out["theme_date"] == d0)
-        ]
-        contract = out[
-            (out["name"] == "U.S. Government/Defense Contract Surge")
-            & (out["theme_date"] == d0)
-        ]
-        assert not spending.empty and not contract.empty
-        assert spending["canonical_id"].iloc[0] == contract["canonical_id"].iloc[0]
+    def test_niche_specialty_chemicals_never_shares_a_cohort_with_ip_licensing(self, canon):
+        chem = _cids(canon, "Niche Specialty Chemicals & Industrial Intermediates")
+        assert chem.isdisjoint(_cids(canon, "IP Licensing & Ad-Tech Royalty Software"))
+        assert chem.isdisjoint(_cids(canon, "IP Licensing & Patent Monetization Software Platforms"))
+
+    def test_nylon_rows_never_share_a_cohort_with_agri_or_nitrogen(self, canon):
+        nylon = _cids(canon, "Nylon & Engineered Polymer Intermediates")
+        assert nylon.isdisjoint(_cids(canon, "Agricultural Commodities & Agri-Business"))
+        assert nylon.isdisjoint(_cids(canon, "Nitrogen & Specialty Crop Nutrient Producers"))
+        assert nylon.isdisjoint(_cids(canon, "Nitrogen Fertilizer & Ammonia Producers"))
+
+    def test_defense_spending_and_contract_surge_merge_on_every_day(self, canon):
+        both = canon[canon["name"].isin([
+            "U.S. Government/Defense Spending Surge", "U.S. Government/Defense Contract Surge",
+        ])]
+        assert both["theme_date"].nunique() >= 2
+        assert both["canonical_id"].nunique() == 1
+
+    def test_same_day_blob_does_not_absorb_optical_networking(self, canon):
+        # Found during #555: on 2026-04-06 a 17-ticker "Independent
+        # Semiconductor Foundry" row swallowed "Optical Networking & AI Data
+        # Transmission Infrastructure" by same-day containment.
+        d = date(2026, 4, 6)
+        opt = canon[(canon["name"] == "Optical Networking & AI Data Transmission Infrastructure") & (canon["theme_date"] == d)]
+        fnd = canon[(canon["name"] == "Independent Semiconductor Foundry & Specialty IC Manufacturing") & (canon["theme_date"] == d)]
+        assert not opt.empty and not fnd.empty
+        assert opt["canonical_id"].iloc[0] != fnd["canonical_id"].iloc[0]
+
+    def test_alternating_names_on_one_basket_are_one_cohort(self, canon):
+        # The false NON-merges the old matcher produced (identical baskets,
+        # alternating names, separate cohorts for weeks).
+        for a, b in [
+            ("Cybersecurity Network Edge & SD-WAN", "Network Security & Zero-Trust Edge"),
+            ("Edge CDN & Cloud-Native Developer Platforms", "Edge Cloud & Developer CDN Platforms"),
+            ("Domestic Steel Producers", "U.S. Domestic Steel Producers"),
+        ]:
+            assert _cids(canon, a) == _cids(canon, b), (a, b)
 
     @staticmethod
     def _dedup_themes_pre_553_oracle(theme_tickers, threshold=0.50, min_shared=3):
         # Verbatim re-derivation of dedup_themes as it existed BEFORE #553
-        # (containment-only, Jaccard used only as a tie-break — no floor) —
-        # an independent oracle, not a call into the function under test, so
-        # this test can't pass by both sides sharing a bug.
+        # (containment-only, Jaccard used only as a tie-break) — an
+        # independent oracle, not a call into the function under test.
         if not theme_tickers:
             return {}
         by_size = sorted(theme_tickers.items(), key=lambda kv: (-len(kv[1]), kv[0]))
@@ -362,10 +465,10 @@ class TestRealSnapshotOverMergeRegressions:
         return parent_of
 
     def test_grid_output_unchanged(self, raw_themes):
-        # THE HARD CONSTRAINT (#553): theme_grid.py's dedup call (threshold
-        # 0.50, min_shared from its 0..6 slider, NO jaccard_floor) must
-        # produce byte-identical parent_of output to the pre-#553 function,
-        # across the FULL slider range Grid exposes — not just the default.
+        # THE HARD CONSTRAINT: theme_grid.py's dedup call (threshold 0.50,
+        # min_shared from its 0..6 slider) must produce byte-identical
+        # parent_of output to the pre-#553 function across the FULL slider
+        # range Grid exposes.
         from theme_data import dedup_themes
 
         latest = (

@@ -1,221 +1,246 @@
-"""Cross-day theme canonicalization (#315 R3).
+"""Cross-day theme canonicalization — cohort identity (#315 R3; rewritten as a
+MODEL under #555 / #553, 2026-09-05).
 
-PROBLEM: the upstream theme engine re-mints each theme's NAME nightly (an LLM
-description), so the same underlying stock cohort shows up as "U.S.
-Government/Defense Spending Surge" one day and "U.S. Government/Defense
-Contract Surge" the next. Every over-time view (bump chart, forward-return
-study) needs ONE stable identity per cohort, not one row per name-variant.
-`theme_data.py`'s existing `dedup_themes()` already solves the SAME-DAY half
-of this (near-duplicate names co-existing in one snapshot, merged by ticker
-overlap) — this module solves the CROSS-DAY half: a name that disappears
-and a new name that appears nearby, driven by the same tickers.
+PROBLEM. The upstream theme engine re-mints each theme's NAME nightly (an LLM
+description), so one stock cohort shows up as "U.S. Government/Defense Spending
+Surge" one day and "...Contract Surge" the next; it also reuses a description
+for an unrelated basket weeks later ("Satellite Mobile & IoT Connectivity
+Services" was six defense/satellite names in March and four biotechs on
+2026-04-16). Every over-time view (Rank Flow, Bump Chart, Forward Returns)
+needs ONE stable identity per cohort. This module attaches it:
+`canonical_id` (the cohort key) and `canonical_name` (the label it is shown
+under).
 
-KEY DECISION (per the task, and the direction the upstream theme engine
-itself went): canonicalize by TICKER-SET, not by name. A cohort's membership
-is far more stable day to day than its LLM-generated description.
+The previous version decided identity by greedy day-to-day ticker overlap
+with nine stacked guards and an ungated exact-name path; the guards fought
+each other (a 0.70 first-contact floor sat 0.014 above the worst false merge)
+and the ungated name path let a cohort walk from specialty chemicals to a
+fertilizer basket in a week. All three false merges the operator evidenced
+(#553) still reproduced across the March-April series. This rewrite replaces
+the guards with a two-axis model and a slow-moving reference set.
 
-## The algorithm (one pass, oldest day -> newest)
+## THE MODEL — a theme is a basket WITH a description; both must agree
 
-Per day:
-  1. Intra-day collapse — reuse `dedup_themes()` (verbatim, same threshold/
-     min_shared as the Grid view) so same-day aliases resolve to ONE
-     representative row before cross-day matching ever sees them.
-  2. Tier 1 — EXACT NAME continuation: if a representative's name exactly
-     matches the most-recently-seen name of a still-live cohort (within
-     `max_gap_days`), it continues that cohort automatically, no ticker
-     check needed. An LLM-generated multi-word theme description recurring
-     verbatim is near-zero-false-positive evidence of "same slot in the
-     engine's output" — stronger than any overlap threshold, and it is what
-     lets a cohort survive a same-name ticker swing that would otherwise
-     dip below the overlap floor (e.g. a theme going from 5 members to 2
-     members while keeping its exact name is obviously still itself).
-  3. Tier 2 — TICKER-OVERLAP continuation for whatever a name-match didn't
-     claim: greedy best-Jaccard-first matching against remaining live
-     cohorts, one cohort claimed per day at most (mirrors `dedup_themes`'
-     "each theme merges into at most one parent" invariant, applied across
-     time instead of within a day).
-  4. Anything still unmatched starts a NEW cohort.
+An observation is one day's row: (name, ticker set). It continues a cohort
+when BOTH hold:
 
-Cohorts unseen for more than `max_gap_days` stop being match candidates —
-old identities don't get silently resurrected by a coincidental overlap
-months later (normal engine cadence is a 1-day gap, occasionally 3-4 over a
-weekend/holiday — see the `_MAX_GAP_DAYS` paragraph below).
+  1. BASKET — it is mostly the same basket as the cohort's CORE (defined
+     below): Jaccard(observation, core) >= `_OVERLAP_THRESHOLD` (0.50) — the
+     shared tickers are at least half of everything either side holds.
+  2. DESCRIPTION — its name does not contradict the cohort: it is a name the
+     cohort has already worn, or it shares a SUBJECT word with one of them
+     (`_subject_words`; form words like "platforms"/"producers", size words
+     like "large-cap"/"pure-play" and narrative words like "recovery"/"surge"
+     do not count — see `_NON_SUBJECT_WORDS`).
 
-## Thresholds — WHY these numbers, with the real counter-examples that set them
+and the match must be carried by strong evidence on at least one axis:
 
-`_OVERLAP_THRESHOLD = 0.50` and `_MIN_SHARED = 3` reuse `dedup_themes()`'s
-already-operator-reviewed values verbatim (theme_grid.py's Dedup slider
-default) — no new number invented for the "how much overlap counts"
-question. Three NEW guards were required beyond that, each one found by
-running this algorithm against the real snapshot and inspecting the
-resulting cohorts (not picked from first principles):
+  - SAME NAME (strong description): the engine is saying "same slot". The
+    basket then only has to share at least ONE ticker with the core — a label
+    reused on a basket sharing nothing with what the theme has mostly been is
+    a different theme (the biotech "Satellite Mobile" above splits; so does
+    "Semiconductor Probe Card & Front-End Test Equipment" when the engine
+    moved that label from the broad semicap basket to {ONTO, TER} on
+    2026-04-21 and kept it there for three months). A theme growing or
+    narrowing around its core under its own label does not split. This is
+    deliberate: under a single label the dashboard honors the engine's own
+    continuity claim rather than second-guessing how wide the engine drew the
+    basket that day — and a row always prefers its own label's cohort over a
+    look-alike basket elsewhere.
+  - NEW NAME: the basket must be mostly the same (axis 1) AND the description
+    must agree (axis 2). Neither alone is enough at any size: a 2-ticker
+    basket coincides across unrelated themes ({ADEA, RYAM} was both "IP
+    Licensing & Ad-Tech Royalty Software" and "Niche Specialty Chemicals" on
+    2026-05-12 — no shared word, split), and a shared word on a basket that
+    is mostly different is a different theme. The old `min_shared = 3`
+    floor existed to stop tiny-basket coincidences; the description axis
+    does that job, so the floor is gone and a 2-ticker theme can be renamed
+    like any other ("Domestic Steel Producers" / "U.S. Domestic Steel
+    Producers", identical 2-set, shares "steel").
 
-  - **Symmetric Jaccard, not containment.** `dedup_themes` uses containment
-    from the smaller side (`|S ∩ L| / |S|`) because same-day dedup is a
-    subset relationship (a fragment theme is fully inside its parent).
-    Applied across TIME that measure over-merges: a 2-ticker theme fully
-    contained in an unrelated 12-ticker theme scores a perfect 1.0. Real
-    example from this snapshot: on 2026-03-20, "Oil & Gas" (6 tickers) fully
-    contains three genuinely distinct sub-themes ("Large-Cap Upstream Oil &
-    Gas E&P", "Downstream Oil Refining & Midstream", "Permian Basin
-    Pure-Play E&P") at containment 1.0 each — Jaccard for the same pairs
-    tops out at exactly 0.5, right at `_OVERLAP_THRESHOLD`'s own floor, so
-    symmetric Jaccard narrows this case but does not fully block it (see the
-    Residual section below — a documented, accepted limit, not something a
-    further guard catches).
-  - **`_MIN_SHARED = 3`** (the intersection floor) is what actually blocks a
-    weak reference set from matching. Real example: "Crypto Recovery"
-    (tickers={CRCL}) vs "CLO & Structured Credit Income" (tickers={CRCL,
-    XFLT}) — Jaccard 0.5, and yet these are unrelated themes that happen to
-    share one stock; blocked because `shared=1 < 3`. An explicit
-    `len(a) >= 2` / `len(b) >= 2` per-side floor and a separate
-    `_SIZE_RATIO_CAP = 2.5` (`max(|A|,|B|) / min(|A|,|B|)` must not exceed
-    this) used to sit alongside `min_shared` for the same purpose. Both were
-    provably redundant with it: `shared >= 3` already forces `|A|>=3` and
-    `|B|>=3` (so a 1-ticker set like CRCL's can never reach a real match
-    regardless of any size floor), and `Jaccard >= 0.50` mathematically
-    implies a size ratio <= 2.0 — strictly tighter than the 2.5 cap, so it
-    could never fire while `_OVERLAP_THRESHOLD >= 0.50`. Both were removed
-    as dead code (verified byte-identical: 332 -> 332 cohorts, pinned cases
-    unchanged); the surviving code only skips a genuinely EMPTY ticker set,
-    a degenerate-input guard rather than a matching-quality one.
-  - **`_MAX_SET_SIZE = 20`** — rows above this are excluded from BOTH
-    matching and from updating a cohort's reference ticker set. 58/3093 rows
-    (1.9%) in this snapshot have >20 tickers, and inspecting them shows the
-    upstream engine occasionally attaches a near-universe-wide basket to a
-    normally-tiny theme for a single day (e.g. "Robo-Advisor & AI-Driven
-    Wealth Management Platforms" is {BETR, WLTH} on every day except
-    2026-04-10, when the SAME name briefly carried 57 tickers spanning half
-    the energy sector — an upstream data glitch, not a real membership
-    change). Left unguarded, that one glitched day bridges two 50+-ticker
-    baskets under different names, which then chain-merges dozens of
-    unrelated themes transitively (observed directly while calibrating this
-    module: "Aerospace MRO & Defense Parts Distribution" and "Robo-Advisor &
-    AI-Driven Wealth Management Platforms" ended up in the same cohort as
-    plain Oil & Gas names before this guard was added). The cap does not
-    drop the row from the OUTPUT — it still renders with its real ticker
-    count — it only stops that one day's reading from being trusted as a
-    matching signature.
-  - **Structural guard — a new name may only absorb a cohort via ticker
-    overlap if that cohort's last-seen name is ABSENT from today's
-    snapshot.** If the old and new names co-exist on the same day, the
-    engine itself is saying they're different themes (this is exactly what
-    Tier 1/intra-day dedup are for), not that one replaced the other.
+WHY BOTH AXES — the subset-vs-coincidence crux. Membership alone cannot tell
+a small theme that is genuinely a subset of a larger one from a small theme
+that merely sits inside an unrelated one: on 2026-03-25 "Satellite Mobile &
+IoT Connectivity Services" {GD, IRDM, LMT, NOC, PL, RTX} contained all of
+"U.S. Defense Primes & Aerospace" {GD, LMT, NOC, RTX} at Jaccard 0.67, and on
+2026-03-26 "Nylon & Engineered Polymer Intermediates" contained all of "Niche
+Specialty Chemicals & Industrial Intermediates" at Jaccard 0.71 — the same
+geometry (an established basket plus two newcomers under a new label), and
+the operator's judgment is opposite: the first is a different theme, the
+second a rename. What separates them is the description: "Nylon ... Polymer
+Intermediates" still describes the old members; "Satellite Mobile & IoT"
+describes the two newcomers. Measured on the whole snapshot, every correct
+multi-name cohort shares a subject word between its names, and every
+evidenced false merge (satellite/defense, chemicals/ad-tech, the nylon ->
+nitrogen -> agri chain, and a same-day absorb of "Optical Networking" into a
+"Semiconductor Foundry" blob on 2026-04-06) shares none. Identical baskets
+under unrelated names are NOT exempt — those are exactly the false merges
+({ADEA, RYAM}; the 15-ticker blob the engine labelled Nylon, then Nitrogen,
+then Agricultural on 04-08/04-10/04-13).
 
-`_MAX_GAP_DAYS = 10`: this snapshot's day-to-day cadence is calendar gap 1
-on 67/84 transitions, 2-4 on the rest (weekends, holidays) — max observed 4.
-10 is a deliberate ~2x buffer over that observed max so a slow week doesn't
-sever a real cohort, while staying far short of "coincidental reuse months
-later" (some exact-name pairs in this snapshot are 60+ days apart with no
-ticker relationship at all — those must NOT be treated as one continuous
-cohort, and gap alone stops the ticker-overlap tier from trying).
+## THE CORE — how chaining is prevented
 
-Calibration evidence: the counter-examples above (Oil & Gas containment
-over-merge, Crypto Recovery/CLO weak-reference merge, Robo-Advisor glitch-day
-chain) were found by running earlier drafts of this algorithm against the
-real `apollo_themes_snapshot.json` and inspecting the resulting cohorts —
-`test_theme_canon.py` pins the fixed behavior against small synthetic
-fixtures encoding each one, plus a smoke test against the live snapshot.
+A cohort's reference set is not its latest observation and not its first: it
+is the STRICT MAJORITY of its life — every ticker present in more than half
+of the cohort's representative observations so far. Matching is always
+against the core, and only the day's representative observation votes into
+it. Consequences:
 
-## #553 fix — cohort matching glued unrelated themes together
+  - a single blob day (the engine attaching a 15-57 ticker basket to a small
+    theme) cannot move the core, so it cannot become the reference for the
+    next match — no separate "max set size" guard is needed;
+  - a walk A -> B -> C needs the drifted basket to persist for more than
+    half the cohort's life before the core follows it, at which point the
+    cohort genuinely IS the new basket (a theme evolving over months, or the
+    engine redefining what a label covers — "Optical Components &
+    Transceiver Manufacturers" seeded as 4 tickers and became an 18-ticker
+    basket within a week), while a chain of individually plausible one-day
+    hops (the #553 fertilizer chain: 5-ticker chemicals to a 15-ticker agri
+    basket in six hops) is impossible — each hop is measured against the
+    origin-weighted core, not the previous hop. The one thing a label CAN
+    do is carry its own cohort onto a different basket by persisting there
+    (the engine kept "Independent Semiconductor Foundry" on an optical blob
+    for three weeks after four days on {PLAB, TSEM}); the dashboard follows
+    the engine's slot rather than second-guessing it, and the few seed rows
+    then wear the label the cohort ends up under.
 
-Measured on the real snapshot (2026-08-08): 34 of 311 cohorts (11%) were
-stitched from more than one raw name, and three of those were plainly wrong
-— e.g. "Satellite Mobile & IoT Connectivity Services" absorbed "U.S. Defense
-Primes & Aerospace" ({GD, LMT, NOC, RTX}) on pure ticker overlap despite
-being different real themes. The guards above (symmetric Jaccard, size-ratio
-cap, structural guard) all predate this fix and did NOT catch these three —
-four NEW guards were required, found by instrumenting every merge decision
-against the real snapshot (not guessed):
+This is "origin plus a drift budget" without a budget knob: the budget is
+"become the majority".
 
-  - **`_intraday_representatives` now passes `jaccard_floor=overlap_threshold`
-    to `dedup_themes()`** (see that function's docstring). Without it, the
-    SAME-DAY collapse step (step 1 of the algorithm above) can glue two
-    unrelated themes together at containment 1.0 / Jaccard as low as ~0.3
-    BEFORE cross-day matching ever runs — real example: on 2026-04-13,
-    "Niche Specialty Chemicals & Industrial Intermediates" (6 tickers) was
-    same-day contained in "Agricultural Commodities & Agri-Business" (15
-    tickers) at containment 1.0 but Jaccard 0.4, seeding part of the
-    Nitrogen/chemicals chain-merge below. `theme_grid.py`'s own dedup call
-    does NOT pass this — Grid's behavior is provably unchanged (see
-    `test_grid_output_unchanged`).
-  - **The Tier 2 `min_shared` relaxation was removed** — it used to accept
-    `shared >= min(min_shared, denom)`, letting a 2-ticker set match on only
-    2 shared tickers. Real example: "Niche Specialty Chemicals & Industrial
-    Intermediates" and "IP Licensing & Ad-Tech Royalty Software" both
-    reduced to the identical 2-ticker set {ADEA, RYAM} at different points
-    and merged at Jaccard 1.0 purely because 2/2 cleared the relaxed floor —
-    same failure shape as the 1-ticker CRCL/XFLT case above, just one notch
-    bigger. Tier 2 now requires the SAME unrelaxed `min_shared` floor
-    `dedup_themes()` already enforces — there is no principled reason
-    cross-day matching should trust weaker evidence than same-day matching
-    does.
-  - **`_FIRST_CONTACT_THRESHOLD = 0.70`** — a rep_name that has NEVER before
-    been recorded under a candidate cohort (as its representative OR as a
-    same-day alias absorbed into it) must clear a higher Jaccard bar than one
-    that has. Real example: "Satellite Mobile & IoT Connectivity Services"
-    had never touched the "U.S. Defense Primes & Aerospace" cohort before,
-    yet grabbed it at Jaccard 0.667 (4 of 6 tickers pre-existing, 2 brand
-    new) on first contact — exactly the situation where a stable NAME (Tier
-    1) or a prior track record is the only real evidence a match is genuine,
-    and neither existed. 0.70 sits strictly above 0.667 (blocks the bad
-    case) and strictly below 0.714/0.778 (the real first-contact renames
-    this snapshot also contains, e.g. "Theme Alpha" → "Theme Alpha Redux"
-    shape and "Niche Specialty Chemicals" → "Nylon & Engineered Polymer
-    Intermediates" both still pass). A cohort's OWN alias history (recorded
-    every day, not just for its current representative) counts as prior
-    contact, so a same-day handoff established via intraday dedup still
-    carries its lower 0.50 bar forward on the day the old name retires (see
-    `test_old_name_retiring_hands_off_to_its_own_alias`).
-  - **Anchor-set check** — every cohort freezes `anchor_tickers` (its ticker
-    set at creation, never updated). Tier 2 must clear `overlap_threshold`
-    against BOTH the cohort's latest set AND its anchor set. This is what
-    stops chain drift: each single hop in a chain can look individually
-    fine (Jaccard 0.7-1.0 against whatever the cohort currently holds) while
-    the cumulative walk ends up somewhere unrelated to where the cohort
-    started. Real example: by 2026-04-10, a cohort that began as "Niche
-    Specialty Chemicals & Industrial Intermediates" ({ASIX, CC, CE, LXU,
-    RYAM}) had — through 6 individually-plausible hops — drifted to a
-    15-ticker nitrogen-fertilizer/agri-business set sharing only LXU with
-    where it started; "Nitrogen & Specialty Crop Nutrient Producers" then
-    matched that DRIFTED set at Jaccard 1.0. Checked against the frozen
-    anchor, that same match scores Jaccard 0.333 and is blocked. Applies
-    ONLY to Tier 2 — Tier 1 (exact-name) drift is deliberately left
-    ungated, unchanged from the original design (a stable label is treated
-    as strong evidence on its own, per the Tier 1 rationale above).
+## SAME-DAY rows
 
-Residual (documented, not fixed here): a handful of same-day merges at
-exactly the 0.50 Jaccard boundary survive by design — e.g. "Oil & Gas"
-(6 tickers) still absorbs the 3 sub-themes cited above at Jaccard exactly
-0.5 each. Tightening the boundary to `>` would flip
-`test_old_name_retiring_hands_off_to_its_own_alias`, which is pinned at
-exactly Jaccard 0.50 for a real, wanted merge — so this stays a documented
-limitation rather than a further threshold change (avoids re-litigating one
-number against two conflicting real examples with no data to break the
-tie). Also unfixed by design: a single
-anomalous later row can still re-attach to a cohort it was split from, if by
-then the two genuinely do share ~80%+ of their tickers (e.g. one stray
-2026-04-13 "U.S. Defense Primes & Aerospace" row re-joins the Satellite
-Mobile cohort it was split from at 03-25, because by then their baskets
-really had converged to 83% overlap) — ticker-only matching cannot
-distinguish that from a genuine rename; the ORIGINAL 4-ticker capture the
-operator flagged is fixed and stays fixed for its entire run.
+Rows on one day are matched to live cohorts first; a cohort may take several
+rows in a day when each independently passes the test (two descriptions of
+one basket in one engine run — the 2026-08-18/19 double-run duplicates). The
+best-evidence row is that day's representative; the others are same-day
+aliases (they get the cohort's id but do not vote into the core). A row that
+matches no core but IS the same theme as a cohort's representative row today
+(row against row, same test) is also that cohort's alias — the day's second
+wording of one emitted basket. Rows still unclaimed are deduplicated among
+themselves with the same two-axis test (larger basket absorbs smaller) and
+then start new cohorts. Finally, a cohort that took a row today and is the
+same theme core-to-core as any other live cohort collapses into it (the
+older keeps its id) — the persistent-duplicate case, two engine slots
+emitting one basket under two wordings for weeks, which label continuity
+would otherwise keep apart forever; tested against every live cohort, not
+just today's, because duplicate slots often alternate days. Grid's own
+same-day dedup (`theme_data.dedup_themes`, the operator's slider) is a
+separate feature and is untouched.
+
+## EMPTY rows
+
+A row with no tickers (the engine's Retired marker; 293 of 4,468 rows, all
+with null rs_avg) has no basket evidence. It attaches by name to the live
+cohort that has worn that name; otherwise it starts a cohort of its own.
+This is what makes a same-day duplicate stay merged on its Retired day
+("Spending Surge" / "Contract Surge" both retired empty on 2026-08-05).
+
+## NAMING
+
+`canonical_name` is the cohort's most recently worn name among names worn on
+at least two days (a young cohort with nothing else falls back to its latest
+name). Previously it was the bare most-recent name, which let one Retired row
+on 2026-04-13 relabel nine days of "Satellite Mobile" as "U.S. Defense Primes
+& Aerospace". A real rename still takes over as soon as it recurs, so the
+label matches the name on the Grid / Telegram board; a one-day visitor never
+does.
+
+## Knobs (two numbers; down from six numbers plus three structural rules)
+
+`_OVERLAP_THRESHOLD = 0.50` reuses the operator-reviewed value from
+`theme_data.dedup_themes` (theme_grid.py's slider default). `_MAX_GAP_DAYS =
+10` is ~2x the largest real cadence gap (4 days over a holiday weekend); a
+name and basket returning after longer is a new surfacing, not a
+continuation. `_NON_SUBJECT_WORDS` is a word list, not a number — it is the
+one thing here that encodes judgment about language and the one an operator
+may want to edit. Retired with the old matcher: `_MIN_SHARED`,
+`_MAX_SET_SIZE`, `_FIRST_CONTACT_THRESHOLD`, the anchor-set check, the
+structural "old name still present" guard, the ungated exact-name tier and
+`dedup_themes(jaccard_floor=)`.
+
+Residual, accepted with reason: on 2026-03-20 the one-day parent "Oil & Gas"
+{COP, EOG, FANG, MPC, VLO, XOM} is the union of two live sub-themes,
+"Downstream Oil Refining & Midstream" {FANG, MPC, VLO} and "Large-Cap
+Upstream Oil & Gas E&P" {COP, EOG, XOM}. It ties with both (each is exactly
+half of it and shares "oil"), attaches to whichever is older, and the other
+keeps its own identity — previously all three sub-themes (and "Permian Basin
+Pure-Play E&P") collapsed into "Oil & Gas". Which half a one-day parent
+attaches to is a tie-break; a sub-theme inside a broad parent is a
+parent-child question (#505) the apollo-side engine owns.
+
+`test_theme_canon.py` pins the model on synthetic fixtures (realistic names —
+the description axis makes fixture names load-bearing) and on the real
+snapshot: the three evidenced false merges stay split, the defense duplicate
+stays merged on every day it appears, and Grid is byte-identical.
 """
 from __future__ import annotations
 
+import re
+from collections import Counter
 from datetime import date
 
 import pandas as pd
 
-from theme_data import dedup_themes
-
-# ── Tunables (see module docstring for the WHY behind each number) ─────────
-_OVERLAP_THRESHOLD = 0.50  # Jaccard floor — reuses dedup_themes' value
-_MIN_SHARED = 3             # |intersection| floor — reuses dedup_themes' value
+# ── Tunables (see module docstring "Knobs") ────────────────────────────────
+_OVERLAP_THRESHOLD = 0.50  # Jaccard floor vs the cohort core — reuses dedup_themes' value
 _MAX_GAP_DAYS = 10          # ~2x the observed max real-cadence gap (4 days)
-_MAX_SET_SIZE = 20          # excludes glitched near-universe-wide basket rows
-_FIRST_CONTACT_THRESHOLD = 0.70  # #553: Tier 2 bar for a name/cohort pair with
-                                  # no prior track record (see module docstring)
+
+# Words that describe a basket's FORM, SIZE or NARRATIVE rather than its
+# SUBJECT. Two names agree on description only when they share a word that is
+# NOT in this list. "Space Launch & Orbital Services" vs "Satellite Mobile &
+# IoT Connectivity Services" share only "services" — no agreement; "Hydraulic
+# Fracturing & Well Completion Services" vs "Pressure Pumping & Completion
+# Services" share "completion" — agreement. Connectors and the fragments that
+# tokenizing "U.S." / "E&P" / "P&C" leave behind are here too.
+_NON_SUBJECT_WORDS = frozenset({
+    # connectors / tokenizer fragments
+    "and", "or", "of", "the", "for", "in", "on", "to", "at", "by", "with",
+    "via", "vs", "its", "u", "s", "us", "e", "p", "c", "non", "re",
+    # size / tier / positioning
+    "large", "mid", "small", "micro", "mega", "cap", "tier", "pure", "play",
+    "senior", "junior", "major", "leading", "top", "diversified",
+    "independent", "integrated", "specialty", "niche", "select", "core",
+    "focused", "based", "driven", "related", "adjacent", "oriented", "stage",
+    "high", "performance", "quality", "premium", "next", "gen", "generation",
+    "new", "emerging", "other", "broad", "global", "domestic", "international",
+    # form words — what kind of company, not what it does
+    "platform", "service", "infrastructure", "system", "operator", "provider",
+    "company", "manufacturer", "manufacturing", "producer", "developer",
+    "distributor", "processing", "solution", "industry", "sector", "theme",
+    "basket", "stock", "name",
+    "group", "business", "holding", "player", "vendor", "supplier",
+    "enabler", "beneficiary", "leader", "pick", "plays", "names",
+    # narrative words — the story around a basket, not its subject
+    "recovery", "rotation", "rating", "surge", "revival", "momentum",
+    "breakout", "rebound", "rally", "turnaround", "comeback", "resurgence",
+    "boom", "cycle", "upcycle", "trade", "rerating", "catalyst", "reflation",
+    "reopening", "winner", "laggard",
+})
+
+
+def _singular(word: str) -> str:
+    """Crude English singular so 'polymers' == 'polymer', 'companies' ==
+    'company'. Only strips plural suffixes; never touches 3-letter words
+    ('gas') or words ending in a double-s ('business')."""
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _subject_words(name: str) -> frozenset[str]:
+    """The words of a theme name that carry its SUBJECT (see
+    `_NON_SUBJECT_WORDS`). Lowercased, split on anything non-alphanumeric
+    (so 'Gene-Editing' and 'Gene Editing' agree), singularized."""
+    out = set()
+    for raw in re.split(r"[^a-z0-9]+", name.lower()):
+        if len(raw) < 2 or raw in _NON_SUBJECT_WORDS:
+            continue
+        word = _singular(raw)
+        if word not in _NON_SUBJECT_WORDS:
+            out.add(word)
+    return frozenset(out)
 
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
@@ -224,46 +249,45 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
     return len(a & b) / len(a | b)
 
 
-def _intraday_representatives(
-    day_rows: pd.DataFrame, threshold: float, min_shared: int, max_set_size: int
-) -> tuple[dict[str, str], dict[str, frozenset]]:
-    """One dedup_themes() pass for a single day. Returns (parent_of, rep_tickers)
-    — rep_tickers is each REPRESENTATIVE's own ticker set that day (dedup_themes
-    only decides which name is the parent; it does not union ticker sets).
+def _same_theme(
+    tks: frozenset, words: frozenset, ref_set: frozenset, ref_words: frozenset,
+    *, exact_name: date | None, overlap_threshold: float,
+) -> tuple | None:
+    """The two-axis test. Returns an evidence key — higher sorts first — or
+    None when the observation is not the same theme as the reference (a
+    cohort's core, or another same-day row). `exact_name` is the date the
+    reference last wore this exact name (None = never)."""
+    shared = len(tks & ref_set)
+    j = _jaccard(tks, ref_set)
+    if exact_name is not None:
+        # Same label: the engine's own continuity claim. Refuse only a label
+        # reused on a basket sharing nothing with what the theme has mostly
+        # been (its core) — or accept blindly when there is no basket on
+        # record yet. Ranks above any basket-only match, and among cohorts
+        # that wore the label, the one that wore it most recently wins: a
+        # row stays where its label was yesterday rather than migrating to a
+        # look-alike basket.
+        if ref_set and shared < 1:
+            return None
+        return (1, exact_name, j, shared)
+    if j < overlap_threshold:
+        return None
+    if not (words & ref_words):
+        return None
+    return (0, date.min, j, shared)
 
-    Rows above `max_set_size` are withheld from dedup_themes entirely (can
-    neither absorb nor be absorbed) — the same glitch-day protection Tier 2
-    applies, needed here too: two coincidentally-huge same-day baskets can
-    otherwise dedup into one alias pair before the cross-day matcher ever
-    runs, which defeats the Tier-2 guard downstream (see module docstring's
-    Robo-Advisor example — the same glitch row can strike intra-day)."""
-    name_tickers = {
-        row["name"]: tuple(row["tickers"])
-        for _, row in day_rows.iterrows()
-        if row["tickers"] and len(row["tickers"]) <= max_set_size
-    }
-    # #553: jaccard_floor=threshold turns dedup_themes' containment-only match
-    # into a containment-AND-Jaccard gate here (Grid's own call in
-    # theme_grid.py does NOT pass this, so Grid is unaffected — see that
-    # function's docstring + test_grid_output_unchanged).
-    parent_of = dedup_themes(
-        name_tickers, threshold=threshold, min_shared=min_shared, jaccard_floor=threshold
-    )
-    rep_tickers = {
-        name: frozenset(tks)
-        for name, tks in name_tickers.items()
-    }
-    return parent_of, rep_tickers
+
+def _core(counts: Counter, n_obs: int) -> frozenset:
+    """Tickers present in MORE than half of the cohort's representative
+    observations (strict majority; one observation -> its own set)."""
+    return frozenset(t for t, c in counts.items() if 2 * c > n_obs)
 
 
 def canonicalize_themes(
     df: pd.DataFrame,
     *,
     overlap_threshold: float = _OVERLAP_THRESHOLD,
-    min_shared: int = _MIN_SHARED,
     max_gap_days: int = _MAX_GAP_DAYS,
-    max_set_size: int = _MAX_SET_SIZE,
-    first_contact_threshold: float = _FIRST_CONTACT_THRESHOLD,
 ) -> pd.DataFrame:
     """Attach `canonical_id` / `canonical_name` to every (name, theme_date) row.
 
@@ -271,13 +295,14 @@ def canonicalize_themes(
     `tickers` a list — the shape theme_data._load() produces). Output: a COPY
     with two new columns. `canonical_id` is a stable synthetic key ("K0001",
     ...) shared by every row belonging to the same tracked cohort, in ANY
-    name it wore. `canonical_name` is that cohort's MOST RECENT name (the
-    freshest LLM description) — the same value on every row of that cohort,
-    so grouping by either column gives one continuous series per cohort.
+    name it wore. `canonical_name` is that cohort's most recently worn name
+    among names worn on two or more days (module docstring, NAMING) — the
+    same value on every row of that cohort, so grouping by either column
+    gives one continuous series per cohort.
 
     Pure function of its input (deterministic given the same df + params) —
     no I/O, no Streamlit dependency. Callers cache it (see
-    theme_data.get_canonical_themes).
+    theme_data.get_canonical_themes). The model is in the module docstring.
     """
     if df.empty:
         out = df.copy()
@@ -287,163 +312,206 @@ def canonicalize_themes(
 
     work = df.sort_values("theme_date").reset_index(drop=True)
 
-    # cohorts[cid] = {"tickers": frozenset (last USABLE reference set),
-    #                 "last_date": date, "last_name": str,
-    #                 "anchor_tickers": frozenset (FROZEN at creation, #553
-    #                     Fix D — never updated again; the chain-drift check
-    #                     below compares against this, not just "tickers"),
-    #                 "ever_names": set[str] (#553 Fix C — every raw name ever
-    #                     recorded under this cid, rep or alias; a name with
-    #                     no entry here is "first contact" and needs the
-    #                     higher first_contact_threshold bar)}
+    # cohorts[cid] = {
+    #   "counts": Counter  ticker -> number of representative observations containing it
+    #   "n_obs":  int      representative observations with a non-empty basket
+    #   "core":   frozenset  strict-majority set (derived; see _core)
+    #   "names":  Counter  name -> days worn (representative or alias)
+    #   "name_last": dict  name -> last date worn (naming tie-break)
+    #   "words":  frozenset union of _subject_words over every name worn
+    #   "last_date": date }
     cohorts: dict[str, dict] = {}
     next_id = 1
-    # canonical_id assigned per (theme_date, name) row — built up day by day.
     cid_by_key: dict[tuple[date, str], str] = {}
+    merged_into: dict[str, str] = {}   # duplicate cohort -> the cohort that absorbed it
+    words_of: dict[str, frozenset] = {}
+
+    def _words(name: str) -> frozenset:
+        w = words_of.get(name)
+        if w is None:
+            w = words_of[name] = _subject_words(name)
+        return w
+
+    def _root(cid: str) -> str:
+        while cid in merged_into:
+            cid = merged_into[cid]
+        return cid
 
     for day, day_rows in work.groupby("theme_date", sort=True):
-        today_names = set(day_rows["name"])
+        rows: list[tuple[str, frozenset]] = [
+            (row["name"], frozenset(row["tickers"] or ())) for _, row in day_rows.iterrows()
+        ]
+        live = {
+            cid: c for cid, c in cohorts.items()
+            if 0 < (day - c["last_date"]).days <= max_gap_days
+        }
 
-        parent_of, rep_tickers = _intraday_representatives(
-            day_rows, overlap_threshold, min_shared, max_set_size
+        # 1. Every row against every live cohort; best evidence claims first.
+        #    A cohort may take several rows in one day (same-day aliases of
+        #    one basket); a row belongs to at most one cohort.
+        scored: list[tuple[tuple, str, str]] = []
+        for name, tks in rows:
+            if not tks:
+                # Retired marker (no basket): name-only evidence — the live
+                # cohort that most recently wore this name, else nothing.
+                wearers = [cid for cid, c in live.items() if name in c["names"]]
+                if wearers:
+                    cid = max(wearers, key=lambda k: live[k]["name_last"][name])
+                    scored.append(((1, live[cid]["name_last"][name], -1.0, 0), name, cid))
+                continue
+            for cid, c in live.items():
+                ev = _same_theme(
+                    tks, _words(name), c["core"], c["words"],
+                    exact_name=c["name_last"].get(name),
+                    overlap_threshold=overlap_threshold,
+                )
+                if ev is not None:
+                    scored.append((ev, name, cid))
+        # Best evidence first; an exact tie goes to the OLDER cohort (same
+        # rule as the duplicate-cohort fold below: the older id survives).
+        scored.sort(key=lambda x: (x[0], -int(x[2][1:]), x[1]), reverse=True)
+        assigned: dict[str, str] = {}
+        rep_of: dict[str, tuple[str, frozenset]] = {}   # cid -> today's representative row
+        for _ev, name, cid in scored:
+            if name in assigned:
+                continue
+            assigned[name] = cid
+            tks = dict(rows)[name]
+            if tks:   # an empty Retired marker never represents the day's basket
+                rep_of.setdefault(cid, (name, tks))
+
+        # 1b. Same-day duplicates of what a cohort emitted TODAY: a row that
+        #     is the same theme as a cohort's representative row (row vs
+        #     row, same test) is that cohort's alias today even when the
+        #     cohort's core says otherwise — e.g. a label that narrowed to 2
+        #     tickers for weeks (core = the 2) re-emitting its old 5-ticker
+        #     basket under two wordings on one day. Aliases never vote.
+        for name, tks in rows:
+            if name in assigned or not tks:
+                continue
+            best = None
+            for cid, (rep_name, rep_tks) in rep_of.items():
+                if not rep_tks:
+                    continue
+                ev = _same_theme(
+                    tks, _words(name), rep_tks, _words(rep_name),
+                    exact_name=cohorts[cid]["name_last"].get(name),
+                    overlap_threshold=overlap_threshold,
+                )
+                if ev is not None and (best is None or (ev, -int(cid[1:])) > (best[0], -int(best[1][1:]))):
+                    best = (ev, cid)
+            if best is not None:
+                assigned[name] = best[1]
+
+        # 2. Rows no live cohort claimed: dedup among themselves with the
+        #    same test (larger basket absorbs smaller), then new cohorts.
+        new_rows = sorted(
+            [(n, t) for n, t in rows if n not in assigned],
+            key=lambda nt: (-len(nt[1]), nt[0]),
         )
-        rep_names = sorted({parent_of.get(n, n) for n in day_rows["name"]})
-
-        claimed_today: set[str] = set()
-        assigned: dict[str, str] = {}   # rep_name -> cid, this day only
-
-        # Tier 1 — exact-name continuation (see module docstring).
-        # Candidate cohorts still "live" within the gap window, keyed by
-        # their last-registered name; ties broken by most-recently-seen.
-        name_live: dict[str, list[tuple[date, str]]] = {}
-        for cid, c in cohorts.items():
-            gap = (day - c["last_date"]).days
-            if 0 < gap <= max_gap_days:
-                name_live.setdefault(c["last_name"], []).append((c["last_date"], cid))
-        for rep_name in rep_names:
-            candidates = name_live.get(rep_name)
-            if not candidates:
+        parent: dict[str, str] = {n: n for n, _ in new_rows}
+        for i, (s_name, s_tks) in enumerate(new_rows):
+            if not s_tks:
                 continue
-            cid = max(candidates, key=lambda x: x[0])[1]
-            if cid in claimed_today:
-                continue
-            assigned[rep_name] = cid
-            claimed_today.add(cid)
-
-        # Tier 2 — ticker-overlap continuation for whatever Tier 1 left open.
-        scored: list[tuple[float, int, str, str]] = []  # (score, shared, rep, cid)
-        for rep_name in rep_names:
-            if rep_name in assigned:
-                continue
-            a = rep_tickers.get(rep_name, frozenset())
-            # `< 1` only excludes a genuinely empty set (degenerate input) —
-            # `min_shared` (3) already forces both sides to have >= 3 members
-            # for any match to survive, so an explicit >=2 floor here is dead.
-            if len(a) < 1 or len(a) > max_set_size:
-                continue
-            for cid, c in cohorts.items():
-                if cid in claimed_today:
+            best = None
+            for l_name, l_tks in new_rows[:i]:
+                if parent[l_name] != l_name or not l_tks:
                     continue
-                gap = (day - c["last_date"]).days
-                if gap <= 0 or gap > max_gap_days:
-                    continue
-                # Structural guard: only absorb a cohort by overlap if its old
-                # name genuinely stopped being emitted today (a real rename,
-                # not two co-existing distinct themes that happen to overlap).
-                if c["last_name"] in today_names and c["last_name"] != rep_name:
-                    continue
-                b = c["tickers"]
-                if len(b) < 1 or len(b) > max_set_size:
-                    continue
-                shared = len(a & b)
-                # #553 Fix B: NEVER relax below the plain min_shared floor. A
-                # 2-ticker set hitting shared==2 used to slip through here
-                # (min(min_shared, denom) == denom when denom < min_shared) —
-                # real example: two totally unrelated theme names both
-                # reduced to the identical {ADEA, RYAM} pair and merged on a
-                # "full" 2/2 match that carries no more evidence than the
-                # already-rejected 1-ticker CRCL/XFLT case below. Cross-day
-                # matching should never trust weaker evidence than same-day
-                # dedup_themes does (which never relaxes this floor). This
-                # same floor (shared >= min_shared=3) also subsumes the old
-                # explicit per-side >=2 size floor and the separate
-                # `_SIZE_RATIO_CAP` guard — both removed as dead code, see
-                # module docstring "Thresholds" section.
-                if shared < min_shared:
-                    continue
-                score = _jaccard(a, b)
-                if score < overlap_threshold:
-                    continue
-                # #553 Fix C: first contact between this raw name and this
-                # cohort needs a higher bar than a name/cohort pair with a
-                # track record (Tier 1 exact-name persistence or a prior
-                # same-day alias — see cohort_aliases's "ever_names" comment
-                # above). Real example: "Satellite Mobile & IoT Connectivity
-                # Services" had never touched the "U.S. Defense Primes &
-                # Aerospace" cohort before, yet grabbed it at Jaccard 0.667
-                # (2 of its 6 tickers brand new) on first contact alone.
-                if rep_name not in c.get("ever_names", ()):
-                    if score < first_contact_threshold:
-                        continue
-                # #553 Fix D: also require the match against the cohort's
-                # FROZEN anchor set (its tickers at creation), not just its
-                # latest (possibly already-drifted) set — otherwise a chain
-                # of individually-plausible day-to-day hops can walk a
-                # cohort's identity far from where it started while every
-                # single hop clears the bar. Tier 1 (exact-name) drift is
-                # deliberately exempt — see module docstring.
-                anchor = c.get("anchor_tickers")
-                if anchor and _jaccard(a, anchor) < overlap_threshold:
-                    continue
-                scored.append((score, shared, rep_name, cid))
-        scored.sort(key=lambda x: (-x[0], -x[1]))
-        for _score, _shared, rep_name, cid in scored:
-            if rep_name in assigned or cid in claimed_today:
-                continue
-            assigned[rep_name] = cid
-            claimed_today.add(cid)
-
-        # New cohorts for anything still unmatched (deterministic order).
-        for rep_name in rep_names:
-            if rep_name not in assigned:
+                ev = _same_theme(
+                    s_tks, _words(s_name), l_tks, _words(l_name), exact_name=None,
+                    overlap_threshold=overlap_threshold,
+                )
+                if ev is not None and (best is None or ev > best[0]):
+                    best = (ev, l_name)
+            if best is not None:
+                parent[s_name] = best[1]
+        for name, tks in new_rows:
+            if parent[name] == name:
                 cid = f"K{next_id:04d}"
                 next_id += 1
                 cohorts[cid] = {
-                    "tickers": frozenset(), "last_date": day, "last_name": rep_name,
-                    "anchor_tickers": None, "ever_names": set(),
+                    "counts": Counter(), "n_obs": 0, "core": frozenset(),
+                    "names": Counter(), "name_last": {}, "words": frozenset(),
+                    "last_date": day,
                 }
-                assigned[rep_name] = cid
+                assigned[name] = cid
+                rep_of[cid] = (name, tks)
+        for name, _tks in new_rows:
+            if parent[name] != name:
+                assigned[name] = assigned[parent[name]]
 
-        # Commit today's state + row -> canonical_id map (rep AND aliases).
-        for rep_name, cid in assigned.items():
-            tks = rep_tickers.get(rep_name, frozenset())
-            # `rep_tickers` (from `_intraday_representatives`) only ever holds
-            # sets already <= max_set_size — anything oversized was withheld
-            # upstream — so `tks` truthy already implies the size condition;
-            # the size half of this check was dead.
+        # 3. Commit: the representative votes into the core (strict majority
+        #    of everything the cohort has been — a few blob days cannot move
+        #    it; a basket that persists for more than half the cohort's life
+        #    becomes it). Every row (representative and alias) records its
+        #    name on the cohort.
+        for cid, (_name, tks) in rep_of.items():
             if tks:
-                cohorts[cid]["tickers"] = tks
-                if cohorts[cid].get("anchor_tickers") is None:
-                    cohorts[cid]["anchor_tickers"] = tks  # #553 Fix D: frozen once, at creation
-            cohorts[cid]["last_date"] = day
-            cohorts[cid]["last_name"] = rep_name
+                c = cohorts[cid]
+                c["counts"].update(tks)
+                c["n_obs"] += 1
+                c["core"] = _core(c["counts"], c["n_obs"])
+        for name, cid in assigned.items():
+            c = cohorts[cid]
+            c["names"][name] += 1
+            c["name_last"][name] = day
+            c["words"] = c["words"] | _words(name)
+            c["last_date"] = day
+            cid_by_key[(day, name)] = cid
 
-        for _, row in day_rows.iterrows():
-            rep_name = parent_of.get(row["name"], row["name"])
-            cid = assigned[rep_name]
-            cid_by_key[(day, row["name"])] = cid
-            # #553 Fix C: record EVERY raw name seen today under this cid
-            # (rep and aliases alike) so a same-day handoff (e.g. the
-            # old-name-retires-to-its-alias case) carries prior-contact
-            # status forward, not just the day's chosen representative.
-            cohorts[cid].setdefault("ever_names", set()).add(row["name"])
+        # 4. Duplicate cohorts. A cohort that took a row today and is the
+        #    same theme core-to-core (same two-axis test) as another live
+        #    cohort collapses into it; the older keeps its id and absorbs the
+        #    other's whole history. This is the only place a PERSISTENT
+        #    duplicate can be caught — two engine slots emitting one basket
+        #    under two wordings for weeks ("Domestic Steel Producers" / "U.S.
+        #    Domestic Steel Producers", {NUE, STLD} for a month): label
+        #    continuity keeps each label on its own cohort, so row matching
+        #    alone would never re-test them after their first (failed)
+        #    contact. Cores are majorities of whole histories, so two cohorts
+        #    only fold when their histories have mostly been the same basket.
+        for a in sorted(set(assigned.values())):
+            a = _root(a)   # may already have been folded earlier in this loop
+            for b in sorted(cohorts):
+                if b == a or b not in cohorts or a not in cohorts:
+                    continue
+                ca, cb = cohorts[a], cohorts[b]
+                if (day - cb["last_date"]).days > max_gap_days:
+                    continue
+                if not ca["core"] or not cb["core"]:
+                    continue
+                if _same_theme(
+                    cb["core"], cb["words"], ca["core"], ca["words"],
+                    exact_name=None, overlap_threshold=overlap_threshold,
+                ) is None:
+                    continue
+                keep, drop = (a, b) if a < b else (b, a)
+                ck, cd = cohorts[keep], cohorts[drop]
+                ck["counts"].update(cd["counts"])
+                ck["n_obs"] += cd["n_obs"]
+                ck["core"] = _core(ck["counts"], ck["n_obs"])
+                ck["names"].update(cd["names"])
+                for n, d in cd["name_last"].items():
+                    ck["name_last"][n] = max(d, ck["name_last"].get(n, d))
+                ck["words"] = ck["words"] | cd["words"]
+                ck["last_date"] = max(ck["last_date"], cd["last_date"])
+                merged_into[drop] = keep
+                del cohorts[drop]
+                a = keep
 
-    canonical_name_of = {cid: c["last_name"] for cid, c in cohorts.items()}
+    def _label(c: dict) -> str:
+        # The most recently worn name, ignoring names worn on a single day
+        # (a one-day visitor is noise, not a rename) unless nothing else
+        # exists yet. Tracks a real rename as soon as it has recurred, so
+        # the label matches the name the Grid/Telegram board shows today.
+        steady = [n for n, days in c["names"].items() if days >= 2]
+        pool = steady or list(c["names"])
+        return max(pool, key=lambda n: (c["name_last"][n], c["names"][n], n))
+
+    canonical_name_of = {cid: _label(c) for cid, c in cohorts.items()}
 
     out = work.copy()
-    out["canonical_id"] = [
-        cid_by_key[(row.theme_date, row.name)] for row in out.itertuples()
-    ]
+    out["canonical_id"] = [_root(cid_by_key[(row.theme_date, row.name)]) for row in out.itertuples()]
     out["canonical_name"] = out["canonical_id"].map(canonical_name_of)
     return out
 
@@ -459,9 +527,7 @@ def cohort_aliases(canon_df: pd.DataFrame) -> pd.DataFrame:
     column (its own empty-input path attaches one — see that function). An
     empty frame shaped that way produces zero groupby groups, so `rows`
     stays empty and the `if not rows:` branch below already returns the
-    identical empty frame. (A bare `pd.DataFrame()` with no `canonical_id`
-    column at all would raise on the groupby below, same as it always has —
-    not a new failure mode, and not a shape any caller passes.)"""
+    identical empty frame."""
     g = canon_df.groupby("canonical_id")
     rows = []
     for cid, grp in g:
