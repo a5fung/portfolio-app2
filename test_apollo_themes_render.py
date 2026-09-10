@@ -18,7 +18,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 _PAGE = "pages/Apollo_Themes.py"
-_VIEWS = ["Ecosystems", "Grid", "Detail", "Rank Flow", "Bump Chart", "Forward Returns"]
+_VIEWS = ["Ecosystems", "Grid", "Detail", "Weekly Movers", "Rank Flow", "Bump Chart", "Forward Returns"]
 
 
 @pytest.mark.parametrize("view", _VIEWS)
@@ -50,6 +50,19 @@ def test_rank_flow_plots_a_sankey():
     assert not at.exception
     assert at.get("plotly_chart"), "Rank Flow rendered no plotly_chart element"
 
+
+
+def test_weekly_movers_names_a_real_mover():
+    # Same "no exceptions but no content" trap as the other views above —
+    # confirm a real, named mover line rendered (the arrow format #561 asked
+    # for: "Name prev -> curr"), not just the header and caption.
+    at = AppTest.from_file(_PAGE, default_timeout=90)
+    at.run()
+    at.sidebar.radio[0].set_value("Weekly Movers").run()
+    assert not at.exception
+    assert len(at.subheader) > 0, "Weekly Movers rendered no 'Week of ...' header"
+    md_text = " ".join(m.value for m in at.markdown)
+    assert "→" in md_text, "Weekly Movers rendered no named mover/entrant line"
 
 
 def test_forward_returns_shows_real_numbers():

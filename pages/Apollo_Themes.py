@@ -98,7 +98,14 @@ if _q:
 # new information and misled where it differed. Removed rather than kept as
 # near-duplicate. The identity defect underneath is tracked separately — it
 # also affects Rank Flow, just less visibly at band level.
-_VIEWS = ["Ecosystems", "Grid", "Detail", "Rank Flow", "Bump Chart", "Forward Returns"]
+# #561 (2026-09-10, operator on his phone 2026-08-10: "tbh I don't know how to
+# read it"): "Weekly Movers" is a NEW view on the SAME canonical data as Rank
+# Flow — a plain-text, named list of the biggest weekly rank gainers (plus a
+# separate call-out for first-time arrivals into the top 30) instead of an
+# alluvial the operator can't read on his phone. Rank Flow is UNCHANGED and
+# stays in this list — #561 is explicit that his fallback stays reachable
+# until he confirms the new view works; "readable" is his call, not ours.
+_VIEWS = ["Ecosystems", "Grid", "Detail", "Weekly Movers", "Rank Flow", "Bump Chart", "Forward Returns"]
 if "view" not in st.session_state:
     st.session_state["view"] = "Ecosystems"
 
@@ -128,6 +135,14 @@ elif view == "Grid":
     render_grid()
 elif view == "Detail":
     render_detail()
+elif view == "Weekly Movers":
+    try:
+        from theme_movers import render_movers  # lazy: isolate any load failure to this tab
+        render_movers()
+    except Exception as _movers_err:
+        st.error("⚠ Weekly Movers failed to load — the error is shown below; the Grid view still works.")
+        st.exception(_movers_err)
+        render_grid()
 elif view == "Rank Flow":
     try:
         from theme_flow import render_flow  # lazy: isolate any load failure to this tab
