@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
+**Deployed at `https://portfolio-app2.streamlit.app`** — found 2026-09-11 by request, not by asking: the bare subdomain answers 303 to Streamlit's auth endpoint, which then issues a signed login payload back to it, and a non-existent app cannot complete that handshake. ⚠ It is SSO-gated at the platform level, so an automated fetch cannot read the RENDERED page — dashboard changes are verified by recomputing against the same snapshot JSON the page reads, plus a human look. Recorded here because it was in no file at all and cost an operator question (#641).
+
 A Streamlit-based investment portfolio dashboard that pulls data from a Google Sheet (via public CSV URL) and displays interactive Plotly charts for portfolio tracking, performance analysis, allocation breakdown, and risk monitoring. Password-protected via Streamlit secrets.
 
 ## Running the App
