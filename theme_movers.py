@@ -96,11 +96,16 @@ def compute_weekly_movers(
         curr_rank strictly better (smaller) than prev_rank. Sorted by delta
         descending, truncated to `top_n`; `gainers_total` is the count before
         truncation so a caller can show "+N more".
-      - "entrants": on the board THIS week, but NOT on the board (or entirely
-        unranked / absent) the previous week — a first appearance. These carry
-        no numeric "delta" ("outside" isn't a number to subtract from), sorted
-        by curr_rank ascending (the strongest entrant first), truncated the
-        same way.
+      - "entrants": on the board THIS week and with NO RANK AT ALL last week —
+        absent from the grid, or present but unranked. Only these are a true
+        first appearance, so only these carry no numeric "delta" ("outside"
+        isn't a number to subtract from). Sorted by curr_rank ascending,
+        truncated the same way.
+        ⚠ A cohort that WAS ranked last week, even at 34 — past the board cut —
+        is a GAINER with a real delta, not an entrant. The rank is known, so
+        claiming it came from "outside" overstates the churn: measured
+        2026-09-10, 12 of 19 apparent entrants had been on last week's list
+        below rank 30, and only 7 were a genuinely new basket.
     A cohort that is on the board both weeks with an unchanged or WORSE rank,
     or that falls off the board entirely, appears in neither list — see the
     module docstring for why exits/decliners are out of scope here.
@@ -126,8 +131,17 @@ def compute_weekly_movers(
             curr_rank = int(curr_rank)
             name = names.get(cid, cid)
             prev_rank = piv.at[cid, w0]
-            was_on_board = pd.notna(prev_rank) and prev_rank <= board_size
-            if was_on_board:
+            # A KNOWN PRIOR RANK IS A KNOWN PRIOR RANK, even past the board cut (2026-09-10).
+            # This read `prev_rank <= board_size`, so a cohort ranked 34 last week — a number we
+            # HAVE — was thrown into "entrants" and rendered "outside -> 12" as if it had appeared
+            # from nowhere. Measured that day: of 19 entrants, 12 were on last week's list below
+            # rank 30, and only 7 were a genuinely new basket. The board is a top-30 cut of 143
+            # themes, so most "entrants" are ordinary rotation past a line, and calling them new
+            # overstates the churn — the operator spotted the discrepancy against his daily
+            # summaries and was right.
+            # A true entrant is one with NO rank at all last week (absent or unranked).
+            was_ranked = pd.notna(prev_rank)
+            if was_ranked:
                 prev_rank = int(prev_rank)
                 if curr_rank < prev_rank:
                     gainers.append({

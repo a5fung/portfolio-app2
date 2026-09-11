@@ -92,21 +92,40 @@ class TestGainerRanking:
 
 
 class TestEntrants:
-    def test_entrant_from_unranked_and_from_outside_board(self):
+    def test_only_a_truly_unranked_cohort_is_an_entrant(self):
+        """A KNOWN prior rank past the board cut is a GAINER, not an entrant (2026-09-10).
+
+        This test previously asserted the opposite — that a cohort ranked 45 last week
+        "entered from outside". It does not: 45 is a number we have. The board is a top-30 cut
+        of ~143 themes, so treating everything past the line as a first appearance overstated
+        the churn badly. Measured on the live grid that day: of 19 apparent entrants, 12 had
+        been on the previous week's list below rank 30, and only 7 were a genuinely new basket.
+        The operator noticed the dashboard disagreeing with his daily summaries and was right.
+        """
         grid = _grid([
-            ("C", "Satellite Comms", W1, 29),  # no W0 row at all -> unranked that week
+            ("C", "Satellite Comms", W1, 29),  # no W0 row at all -> genuinely unranked
             ("D", "Nylon & Chemicals", W0, 45), ("D", "Nylon & Chemicals", W1, 14),
         ])
         out = compute_weekly_movers(grid, [W0, W1], board_size=30)
         entrants = {e["name"]: e for e in out[0]["entrants"]}
-        assert set(entrants) == {"Satellite Comms", "Nylon & Chemicals"}
-        assert entrants["Nylon & Chemicals"]["curr_rank"] == 14
+        gainers = {g["name"]: g for g in out[0]["gainers"]}
+
+        # only the cohort with NO rank last week is a first appearance
+        assert set(entrants) == {"Satellite Comms"}
         assert entrants["Satellite Comms"]["curr_rank"] == 29
-        # entrants carry no numeric delta — "outside" isn't a number to subtract from
         assert "delta" not in entrants["Satellite Comms"]
-        assert "delta" not in entrants["Nylon & Chemicals"]
-        # neither is double-counted as a "gainer"
-        assert out[0]["gainers"] == []
+
+        # 45 -> 14 is a real climb of 31, reported as such rather than as "outside -> 14"
+        assert set(gainers) == {"Nylon & Chemicals"}
+        assert gainers["Nylon & Chemicals"]["prev_rank"] == 45
+        assert gainers["Nylon & Chemicals"]["delta"] == 31
+
+    def test_a_cohort_that_was_below_the_cut_is_not_double_counted(self):
+        """It belongs in exactly one bucket — the bug would be showing it in both."""
+        grid = _grid([("D", "Nylon & Chemicals", W0, 45), ("D", "Nylon & Chemicals", W1, 14)])
+        out = compute_weekly_movers(grid, [W0, W1], board_size=30)
+        assert [g["name"] for g in out[0]["gainers"]] == ["Nylon & Chemicals"]
+        assert out[0]["entrants"] == []
 
     def test_entrants_sorted_by_current_rank_ascending(self):
         grid = _grid([
