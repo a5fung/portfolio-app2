@@ -102,9 +102,12 @@ if _q:
 # read it"): "Weekly Movers" is a NEW view on the SAME canonical data as Rank
 # Flow — a plain-text, named list of the biggest weekly rank gainers (plus a
 # separate call-out for first-time arrivals into the top 30) instead of an
-# alluvial the operator can't read on his phone. Rank Flow is UNCHANGED and
-# stays in this list — #561 is explicit that his fallback stays reachable
-# until he confirms the new view works; "readable" is his call, not ours.
+# alluvial the operator can't read on his phone. Rank Flow stays in this
+# list — #561 is explicit that his fallback stays reachable until he
+# confirms the new view works; "readable" is his call, not ours. Rank Flow
+# itself got its own readability fix 2026-09-11 (#640): the "Outside top 30"
+# band split into a known-low-rank band and a true no-rank band, legible
+# labels, and direction-colored ribbons — a repair, not a replacement.
 _VIEWS = ["Ecosystems", "Grid", "Detail", "Weekly Movers", "Rank Flow", "Bump Chart", "Forward Returns"]
 if "view" not in st.session_state:
     st.session_state["view"] = "Ecosystems"

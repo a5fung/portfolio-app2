@@ -30,10 +30,13 @@ already compute (#315 R3 / #555 identity rewrite) — and Rank Flow's own
 Deliberately does NOT surface decliners or board exits: #561 asked for "the
 biggest rank GAINERS", not a full leaderboard of change in both directions.
 
-Rank Flow (theme_flow.py) is UNCHANGED and stays reachable in the sidebar —
-this is an addition, not a replacement, until the operator confirms this
-view is the one that works (#561 explicit instruction: don't remove his
-fallback before he's approved what replaces it).
+Rank Flow (theme_flow.py) stays reachable in the sidebar — this is an
+addition, not a replacement, until the operator confirms this view is the
+one that works (#561 explicit instruction: don't remove his fallback before
+he's approved what replaces it). Rank Flow itself got a readability fix
+2026-09-11 (#640 — the same known-vs-no-rank split this view already made,
+plus legible labels and direction-colored ribbons), but it is still the
+same view, not a new one.
 """
 from __future__ import annotations
 
