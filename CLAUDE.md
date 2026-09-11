@@ -8,6 +8,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Streamlit-based investment portfolio dashboard that pulls data from a Google Sheet (via public CSV URL) and displays interactive Plotly charts for portfolio tracking, performance analysis, allocation breakdown, and risk monitoring. Password-protected via Streamlit secrets.
 
+
+## Verifying a dashboard change (#641, 2026-09-11)
+
+The app is **SSO-gated at the Streamlit platform level**, so no automated fetch can read the
+rendered page — a password in `st.secrets` would not change that, because the gate sits in front of
+the app rather than inside it. "Done = confirmed in production" therefore needs a defined substitute,
+and this is it. Three steps, in order:
+
+1. **Recompute the page's own function against the SAME snapshot JSON the page reads, and assert the
+   numbers it will render.** Not a fixture — the committed snapshot IS the page's input, so this is
+   genuinely strong. `test_theme_canon.py::TestRealSnapshot*` and `test_theme_movers.py` are the
+   pattern: pin the real values, not a synthetic shape.
+2. **Say in the report that the rendered page was NOT opened.** Every time. A verification that
+   omits its own limit reads as a stronger claim than it is.
+3. **Ask him to look ONLY when the change is visual** — a chart, a layout, a colour. That is the
+   part step 1 cannot cover, and it is the only part worth his time. When his own words are the bar
+   (*"he can tell in one look..."*), step 3 is not optional and no amount of step 1 replaces it.
+
+⚠ **Two things that cost time on 2026-09-11 and will again:**
+- **Streamlit Cloud served the PRE-push build for ~14 minutes.** A screenshot taken in that window
+  shows the old code and looks like a failed fix. **The tell is a rendered string the new code
+  computes** — after #640 the Rank Flow caption is built from the band list, so a live build reads
+  `31+ · No rank`. Find that tell before concluding anything; a content push forces a rebuild.
+- **A redirect is not an existence check.** `portfolio-app2.streamlit.app` answers 303 to
+  Streamlit's auth endpoint and issues a signed login payload, and no app is deployed there —
+  that endpoint answers for any `*.streamlit.app` subdomain.
+
 ## Running the App
 
 ```bash
