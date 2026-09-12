@@ -65,6 +65,38 @@ def _md_escape(text: str) -> str:
     return _MD_SPECIAL.sub(r"\\\1", str(text))
 
 
+def _weeks_on_board(piv, cid, weeks: list, upto_idx: int, board_size: int) -> int:
+    """How many CONSECUTIVE weeks this cohort has been on the board, ending at
+    `weeks[upto_idx]` inclusive. 1 = its first week.
+
+    #648 (2026-09-12). The board's churn is REAL rotation, not a matcher bug —
+    measured over eleven post-launch weeks: 70% of entrants were baskets never
+    seen before, 29% had been on the board earlier, and exactly ONE in eleven
+    weeks was the same basket under a new name. So there is nothing to fix in
+    identity matching; what there IS to fix is that the board renders a cohort
+    in its first week identically to one that has held for a month, while about
+    HALF of everything reaching the board is gone a week later.
+
+    Two remedies were measured and both died: a basket-size floor cuts the
+    cohorts that persist BETTER (43% of small ones gone after a week against
+    52% of larger), and a two-week confirmation delay costs the cohorts that
+    hold 4+ weeks exactly the five sessions that lift remaining runway from 29%
+    to 55%. Labelling spends nothing and hides nothing — the reader discounts
+    with the fact in front of him.
+
+    Counts only weeks PRESENT IN `weeks`: that list is already gap-filtered by
+    the caller, so a run of consecutive entries here means consecutive usable
+    weeks, and a cohort cannot be credited for a week nobody looked at.
+    """
+    held = 0
+    for k in range(upto_idx, -1, -1):
+        r = piv.at[cid, weeks[k]]
+        if pd.isna(r) or r > board_size:
+            break
+        held += 1
+    return held
+
+
 def compute_weekly_movers(
     grid: pd.DataFrame,
     weeks: list[date],
@@ -151,11 +183,16 @@ def compute_weekly_movers(
                         "canonical_id": cid, "name": name,
                         "prev_rank": prev_rank, "curr_rank": curr_rank,
                         "delta": prev_rank - curr_rank,
+                        "weeks_held": _weeks_on_board(piv, cid, weeks, i, board_size),
                     })
                 # unchanged or worsened but still on the board -> not reported
             else:
                 entrants.append({
+                    # An entrant is week 1 BY CONSTRUCTION (no rank at all last
+                    # week), but carry the number anyway so every rendered line
+                    # has the same field and the renderer needs no special case.
                     "canonical_id": cid, "name": name, "curr_rank": curr_rank,
+                    "weeks_held": _weeks_on_board(piv, cid, weeks, i, board_size),
                 })
         gainers.sort(key=lambda m: m["delta"], reverse=True)
         entrants.sort(key=lambda m: m["curr_rank"])
@@ -170,6 +207,21 @@ def compute_weekly_movers(
     return out
 
 
+def _tenure(weeks_held: int) -> str:
+    """The label that stops a first-week cohort reading like a matured one (#648).
+
+    Words, not a number in brackets: "1st week" carries its own meaning to a
+    reader glancing at a phone, where "(1)" does not. Deliberately plain — the
+    point is that the eye separates the provisional from the established
+    without being taught a notation.
+    """
+    if weeks_held <= 1:
+        return "1st week"
+    return f"{weeks_held}th week" if weeks_held not in (2, 3) else (
+        "2nd week" if weeks_held == 2 else "3rd week"
+    )
+
+
 def _render_week(entry: dict) -> None:
     gainers, entrants = entry["gainers"], entry["entrants"]
     if not gainers and not entrants:
@@ -178,7 +230,10 @@ def _render_week(entry: dict) -> None:
     if entrants:
         st.markdown(f"**New to the top {_OUTSIDE_BOUND}**")
         for m in entrants:
-            st.markdown(f"- **{_md_escape(m['name'])}** outside → {m['curr_rank']}")
+            st.markdown(
+                f"- **{_md_escape(m['name'])}** outside → {m['curr_rank']} "
+                f"· {_tenure(m.get('weeks_held', 1))}"
+            )
         if entry["entrants_total"] > len(entrants):
             st.caption(f"+{entry['entrants_total'] - len(entrants)} more")
     if gainers:
@@ -186,7 +241,7 @@ def _render_week(entry: dict) -> None:
         for m in gainers:
             st.markdown(
                 f"- **{_md_escape(m['name'])}** {m['prev_rank']} → {m['curr_rank']} "
-                f"(+{m['delta']})"
+                f"(+{m['delta']}) · {_tenure(m.get('weeks_held', 1))}"
             )
         if entry["gainers_total"] > len(gainers):
             st.caption(f"+{entry['gainers_total'] - len(gainers)} more")
@@ -196,7 +251,10 @@ def render_movers() -> None:
     st.header("Theme Weekly Movers")
     st.caption(
         "Named rank gainers, one week at a time — which themes got "
-        "stronger, not how many cohorts crossed a band line. Replaces Rank "
+        "stronger, and how long each has held its place: about half of "
+        "everything reaching the board is gone a week later, so a 1st-week "
+        "cohort is a candidate, not yet a theme. Not how many cohorts crossed "
+        "a band line. Replaces Rank "
         "Flow for reading week over week (2026-08-10: “tbh I don't know "
         "how to read it”) — same canonical identity as the Bump "
         "Chart and Rank Flow (#315). Rank Flow stays in the sidebar for now."
