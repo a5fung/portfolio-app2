@@ -489,8 +489,3 @@ def render_flow() -> None:
             for name in sorted(preview):
                 st.caption(f"**{name}** — {preview[name]}")
 
-
-# REDEPLOY NUDGE 2026-09-11 — Streamlit Cloud was still serving the pre-#640 build
-# 14 minutes after the push (proven by the rendered caption, which the new code builds
-# from _BAND_ORDER and would therefore read '31+ · No rank'). A content change forces the
-# rebuild; if the app is ASLEEP this will not wake it and it needs a manual reboot.
