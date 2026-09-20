@@ -419,32 +419,53 @@ def _md(text: str) -> str:
     return str(text).translate(_MD_SPECIALS)
 
 
+def _name_list(names: list[str], names_per_line: int) -> str:
+    """`A, B, C, +4 more` — the cohort-name tail shared by both movers renderings.
+
+    Lifted out of the two identical closures on 2026-09-19 (simplify pass): the split-by-direction
+    list was written additively and copied this verbatim, so a change to the truncation wording
+    would have had to be made twice or silently diverge between the flat and grouped views.
+    """
+    shown = ", ".join(_md(n) for n in names[:names_per_line])
+    more = len(names) - min(len(names), names_per_line)
+    return shown + (f", +{more} more" if more > 0 else "")
+
+
+def _classify_movers(links: dict[tuple[int, str, str], dict]):
+    """`(climbs, falls, held_names)` — rows are `(band_distance, direction, count, b0, b1, names)`.
+
+    The single pass both renderings share. They differ ONLY in how they ORDER and GROUP what comes
+    back, which is why this returns the buckets rather than a finished list: `movers_lines` merges
+    them and sorts by distance across both directions, `movers_sections` keeps them apart.
+    """
+    climbs, falls, held_names = [], [], []
+    for (_i, b0, b1), entry in links.items():
+        d = _direction(b0, b1)
+        if d == 0:
+            held_names.extend(entry["names"])
+            continue
+        row = (abs(_BAND_RANK[b0] - _BAND_RANK[b1]), d, int(entry["count"]), b0, b1,
+               sorted(entry["names"]))
+        (climbs if d > 0 else falls).append(row)
+    return climbs, falls, held_names
+
+
 def movers_lines(links: dict[tuple[int, str, str], dict], names_per_line: int = _LIST_NAMES) -> list[str]:
     """The movers list under the chart, as markdown lines: one per ribbon
     that changed band, biggest band distance first (climbs before falls at
     equal distance, then the larger ribbon), each naming up to
     `names_per_line` cohorts and "+N more". The stay-put ribbons collapse to
     ONE trailing line with their count. Pure — testable without Streamlit."""
-    movers, held_names = [], []
-    for (_i, b0, b1), entry in links.items():
-        d = _direction(b0, b1)
-        if d == 0:
-            held_names.extend(entry["names"])
-            continue
-        movers.append((abs(_BAND_RANK[b0] - _BAND_RANK[b1]), d, int(entry["count"]), b0, b1, sorted(entry["names"])))
+    climbs, falls, held_names = _classify_movers(links)
+    movers = climbs + falls
     movers.sort(key=lambda m: (-m[0], -m[1], -m[2], m[3]))
-
-    def _names(names: list[str]) -> str:
-        shown = ", ".join(_md(n) for n in names[:names_per_line])
-        more = len(names) - min(len(names), names_per_line)
-        return shown + (f", +{more} more" if more > 0 else "")
-
     lines = [
-        f"{':green[▲]' if d > 0 else ':red[▼]'} **{b0} → {b1}** · {n} — {_names(names)}"
+        f"{':green[▲]' if d > 0 else ':red[▼]'} **{b0} → {b1}** · {n} — {_name_list(names, names_per_line)}"
         for _dist, d, n, b0, b1, names in movers
     ]
     if held_names:
-        lines.append(f":grey[—] **held their band** · {len(held_names)} — {_names(sorted(held_names))}")
+        lines.append(f":grey[—] **held their band** · {len(held_names)} — "
+                     f"{_name_list(sorted(held_names), names_per_line)}")
     return lines
 
 
@@ -465,40 +486,28 @@ def movers_sections(
     visible rather than silent. Within a section the order is unchanged: biggest
     band distance first, then the larger ribbon.
 
-    `movers_lines` is left exactly as it was — it is the flat form, still used by
-    its own tests and available to any caller that wants one list.
+    `movers_lines` keeps its own contract — the flat form, ordered by band distance ACROSS both
+    directions — and both now share `_classify_movers` and `_name_list` rather than a copied loop
+    and a copied closure (simplify pass, 2026-09-19).
     """
-    climbs, falls, held_names = [], [], []
-    for (_i, b0, b1), entry in links.items():
-        d = _direction(b0, b1)
-        if d == 0:
-            held_names.extend(entry["names"])
-            continue
-        row = (abs(_BAND_RANK[b0] - _BAND_RANK[b1]), int(entry["count"]), b0, b1,
-               sorted(entry["names"]))
-        (climbs if d > 0 else falls).append(row)
+    climbs, falls, held_names = _classify_movers(links)
     for bucket in (climbs, falls):
-        bucket.sort(key=lambda m: (-m[0], -m[1], m[2]))
-
-    def _names(names: list[str]) -> str:
-        shown = ", ".join(_md(n) for n in names[:names_per_line])
-        more = len(names) - min(len(names), names_per_line)
-        return shown + (f", +{more} more" if more > 0 else "")
+        bucket.sort(key=lambda m: (-m[0], -m[2], m[3]))
 
     def _lines(bucket, mark):
-        return [f"{mark} **{b0} → {b1}** · {n} — {_names(names)}"
-                for _d, n, b0, b1, names in bucket]
+        return [f"{mark} **{b0} → {b1}** · {n} — {_name_list(names, names_per_line)}"
+                for _dist, _d, n, b0, b1, names in bucket]
 
     out: list[tuple[str, list[str]]] = []
     if climbs:
-        out.append((f":green[▲ Climbed] · {sum(r[1] for r in climbs)}",
+        out.append((f":green[▲ Climbed] · {sum(r[2] for r in climbs)}",
                     _lines(climbs, ":green[▲]")))
     if falls:
-        out.append((f":red[▼ Fell] · {sum(r[1] for r in falls)}",
+        out.append((f":red[▼ Fell] · {sum(r[2] for r in falls)}",
                     _lines(falls, ":red[▼]")))
     if held_names:
         out.append((f":grey[— Held] · {len(held_names)}",
-                    [f":grey[—] {_names(sorted(held_names))}"]))
+                    [f":grey[—] {_name_list(sorted(held_names), names_per_line)}"]))
     return out
 
 
