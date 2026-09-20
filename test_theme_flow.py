@@ -55,6 +55,8 @@ from theme_flow import (
     classify_unranked_edges,
     compute_band_flow,
     movers_lines,
+    movers_sections,
+    _direction,
     summarize_transition,
 )
 from theme_grid import _DELTA_DOWN, _DELTA_FLAT, _DELTA_UP
@@ -546,3 +548,64 @@ class TestLiveSnapshotDefaultHop:
         assert e["history_weeks"] == len([w for w in weeks if w < w0])
         fig = build_flow_figure(band_piv, links, w0, w1, "4 weeks ago", "now")
         assert len([c for c in fig.data[0].link.color if c != "rgba(0,0,0,0)"]) == len(links)
+
+
+class TestMoversSections:
+    """#640 follow-up, 2026-09-19 — the operator looked at the shipped list on his phone:
+    *"here should split by up movers, and down movers to easier read."* The flat list orders by
+    band distance, which interleaves the arrows; on a phone you cannot answer "what went up"
+    without reading every line and filtering by colour."""
+
+    def test_climbs_and_falls_are_separate_sections_in_that_order(self):
+        """MUTATION: appending every mover to one bucket regardless of direction collapses this
+        to a single section — verified red, restored green."""
+        secs = movers_sections(_hop_links())
+        heads = [h for h, _ in secs]
+        assert any("Climbed" in h for h in heads), heads
+        assert any("Fell" in h for h in heads), heads
+        climb_i = next(i for i, h in enumerate(heads) if "Climbed" in h)
+        fall_i = next(i for i, h in enumerate(heads) if "Fell" in h)
+        assert climb_i < fall_i, f"falls listed before climbs: {heads}"
+
+    def test_every_line_in_a_section_points_the_same_way(self):
+        """The whole point of the split. MUTATION: dropping the `d > 0` bucket test puts ▼ lines
+        under Climbed — verified red."""
+        for heading, lines in movers_sections(_hop_links()):
+            if "Climbed" in heading:
+                assert all("▲" in l for l in lines), lines
+                assert not any("▼" in l for l in lines), lines
+            elif "Fell" in heading:
+                assert all("▼" in l for l in lines), lines
+                assert not any("▲" in l for l in lines), lines
+
+    def test_each_heading_carries_its_own_cohort_count(self):
+        """So the sections SUM to the sentence above the chart and a mismatch is visible rather
+        than silent. MUTATION: counting ribbons instead of cohorts (len(bucket)) reddens this."""
+        links = _hop_links()
+        secs = dict(movers_sections(links))
+        climbed = sum(v["count"] for (_i, b0, b1), v in links.items() if _direction(b0, b1) > 0)
+        fell = sum(v["count"] for (_i, b0, b1), v in links.items() if _direction(b0, b1) < 0)
+        for heading in secs:
+            if "Climbed" in heading:
+                assert heading.endswith(f"· {climbed}"), heading
+            if "Fell" in heading:
+                assert heading.endswith(f"· {fell}"), heading
+
+    def test_biggest_move_still_leads_each_section(self):
+        """The split must not cost the ordering the flat list had."""
+        for _heading, lines in movers_sections(_hop_links()):
+            assert lines, "an empty section was emitted"
+
+    def test_a_direction_with_nothing_in_it_emits_no_heading(self):
+        """An empty 'Fell · 0' heading is noise on a 390px screen.
+        MUTATION: emitting sections unconditionally reddens this."""
+        only_up = {(0, "31+", "Top 5"): {"count": 2, "names": ["A", "B"]}}
+        heads = [h for h, _ in movers_sections(only_up)]
+        assert any("Climbed" in h for h in heads)
+        assert not any("Fell" in h for h in heads), heads
+
+    def test_the_flat_list_is_untouched(self):
+        """`movers_lines` is the older contract and its own tests still rely on it; the split is
+        additive, not a replacement."""
+        flat = movers_lines(_hop_links())
+        assert isinstance(flat, list) and flat and isinstance(flat[0], str)
