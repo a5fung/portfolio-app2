@@ -1,101 +1,97 @@
-"""Rank-BAND flow (alluvial) — canonical identity, over time (operator ask 8/8).
+"""Rank-BAND flow — ONE transition, readable on a phone (#640, rebuilt 2026-09-19).
 
-PROBLEM WITH THE BUMP CHART: it plots one continuous line per cohort at its
-exact weekly rank. With up to 8 concurrent lines constantly crossing (a rank
-board reshuffles most weeks), the eye can't hold a single line's path through
-a crossing — the operator's own words: "not easiest to read... see if
-there's better visuals... like Sankey." This view answers the SAME question
-("which themes are gaining strength, where in the arc") with an alluvial:
-weeks on the x-axis, five FIXED rank bands as rows (never reordered), ribbons
-between adjacent weeks whose THICKNESS is the count of cohorts making that
-band-to-band move. A promotion is a ribbon rising toward the top row; a
-demotion is a ribbon sinking — read directly off ribbon shape, no per-line
-tracing required, and it scales to however many cohorts are on the board
-(spaghetti in the bump chart, just thicker ribbons here).
+THE QUESTION it answers is unchanged since the 8/8 ask: "which themes are gaining
+strength, where in the arc" — a cohort's canonical identity (theme_canon.py, the
+same source as theme_bump.py and theme_movers.py) tracked between two weeks, by
+RANK BAND rather than exact rank, so the eye reads a ribbon instead of tracing a
+line through a crossing.
 
-Same canonical-identity data source as theme_bump.py
-(theme_data.get_canonical_weekly_grid → theme_canon.py) — a cohort survives
-the theme engine renaming it day to day. See theme_canon.py's docstring for
-the known limitation this inherits: 55% of raw theme rows carry <3 tickers
-and can only be stitched by name, so small/young cohorts fragment more than
-this view's ribbon thickness implies. Disclosed in the caption below, not
-just here — the ask was explicit that the UI, not only the code comment,
-must carry it.
+WHY IT IS ONE TRANSITION, NOT ELEVEN (operator 2026-09-11 on the previous
+build: *"still not readable, can this view even be fixed?"*, then, sending his
+own Income → Expense flow: *"what I really want is a sankey chart like this
+which is readable"*). His chart is three columns and every node names its own
+value and share. The old Rank Flow drew every week at once — measured on the
+live grid, 24 weeks of transitions is 357 ribbons across 218 cohorts; ONE
+four-week hop is 17 ribbons across 55, and 95% of those cohorts actually moved.
+Density was the defect, not styling. Design + sign-off:
+`apollo_the_wise/docs/design/rank_flow_readable_sankey.md` (§ MOBILE PASS).
+
+## What the page shows, top to bottom
+
+1. **The answer in a sentence** — `25 climbed · 27 fell · 3 held`, then the
+   single biggest move BY NAME (largest band distance; a climb beats a fall at
+   equal distance; first name alphabetically inside that ribbon). Derived from
+   `compute_band_flow`'s `links` by `summarize_transition`.
+2. **The chart** — source bands on the left, target bands on the right, in a
+   PORTRAIT figure sized for a 390px screen: labels live in fixed pixel margins
+   either side, so the ribbon span is what is left of the width (~150px on a
+   phone, ~350px on a desktop inside a capped container) and no label ever sits
+   on a ribbon. Every band node is labelled with its own count and share
+   (`16-30 · 15 · 27%`) PERMANENTLY — hover does not exist on a phone. Tapping a
+   ribbon still lists its names.
+3. **A caption** carrying the honesty about the `New / unranked` band (below).
+4. **A movers list** — one line per ribbon, biggest band distance first, naming
+   the cohorts that made that move; the stay-put cohorts collapse to one line.
+   The full per-cohort table stays in an expander.
 
 ## The bands
 
-Top 5 / 6-15 / 16-30 / 31+ / No rank — five fixed rows, top→bottom. The old
-"Outside top 30" band merged four different facts (rank 31, rank 140,
-never-seen, and a data gap all read identically), which made every ribbon
-into or out of it uninterpretable — fixed 2026-09-11 (#640) by splitting it:
+Top 5 / 6-15 / 16-30 / 31+ / New / unranked — five fixed rows, top→bottom.
+The old "Outside top 30" band merged four facts (rank 31, rank 140, never-seen,
+and a data gap) and was split 2026-09-11:
 
 - **"31+"** — a cohort WITH a known week_rank that is simply worse than the
-  board cut. The number is real; we just don't show it precisely (matches
-  `theme_grid._rank_color`'s own "cell_out" treatment for the same fact —
-  a known-but-low rank is a distinct visual class from no data at all, and
-  this view now draws that same line).
-- **"No rank"** — no usable rank AT ALL that week: absent from that week's
-  snapshot (never seen, or retired that week) or a data gap (row present,
-  `rs_avg` null). This is a fact about our DATA, not about the cohort's
-  strength, and is kept visually the dimmest row for exactly that reason.
+  board cut. Matches `theme_grid._rank_color`'s own "cell_out" treatment.
+- **"New / unranked"** (renamed from "No rank" 2026-09-19, operator ruling) —
+  no usable rank at all that week: absent from that week's snapshot, or a row
+  present with a null `rs_avg`. MEASURED over the chosen 08-17 → 09-14 hop, of
+  the 20 cohorts that climbed out of this band 18 had NEVER been ranked in the
+  19 weeks on file (a theme being born), 2 had a row but no rank, 0 were
+  returning. So the fattest ribbon on the chart is real, and the ruling was to
+  RENAME rather than add a sixth band for a two-cohort case: the honesty goes
+  in the caption, computed for the displayed hop by `classify_unranked_edges`,
+  not in the geometry. Found while building the caption: EVERY null-rank row
+  in the snapshot (798 of 1895) is stage Fading or Retired — a null rank is
+  the engine's own verdict on the theme, not a hole in our export — so the
+  caption says "listed but unscored", not "data gap".
 
-Measured against the live snapshot at the page's own default (10 weeks): of
-the cohort-weeks that would have fallen into the old merged band, 190 of
-1230 (~15%) carried a KNOWN rank past the cut and were being told apart from
-zero-data weeks by nothing. See `theme_movers.py`'s own 2026-09-10 fix for
-the sibling defect this reuses the same distinction from (`pd.notna(rank)`
-on the grid's `week_rank` column — a known prior rank counts even past the
-cut, full stop).
+## Rendering decisions (each found by rendering against the real snapshot)
 
-## Rendering decisions found by building this against the real snapshot
-
-1. **Only the "No rank → No rank" self-loop is dropped from the plotted
-   links** (before 2026-09-11 this was the whole merged "Outside → Outside"
-   self-loop). A cohort with zero data two weeks running carries zero "did
-   this cohort move" information and, measured against the live snapshot,
-   is overwhelmingly the majority case (826 of 980 dropped-candidate links
-   at the 10-week default) — keeping it would still swamp every real move.
-   A cohort sitting continuously in "31+" (a known, if unexciting, rank) is
-   NOT dropped — that self-loop is small in practice (90 of the same 980)
-   and, unlike "No rank", it is a real fact about the cohort, not an
-   absence of one. Every entry/exit across any band boundary stays,
-   including "31+ ↔ No rank" (a known-low cohort dropping off the map
-   entirely, or reappearing) — that transition is real signal.
-2. **Empty-band nodes get an invisible zero-width keep-alive self-loop.**
-   Plotly's `go.Sankey` with `arrangement="fixed"` locks node position — but
-   ONLY for nodes that carry at least one link. A node with literally zero
-   throughput that week (e.g. no cohort landed in "16-30" that particular
-   week) collapses out of the layout entirely and its column's OTHER nodes
-   silently shift to fill the gap — discovered empirically while prototyping
-   this view (a real Plotly behavior, not a hypothetical): the result reads
-   as the band ROWS reordering week to week, which would be actively
-   misleading for an alluvial whose entire point is "row = fixed meaning."
-   A near-zero, fully-transparent self-loop (`rgba(0,0,0,0)`, value 0.3)
-   gives the node enough throughput to keep its row locked without drawing
-   anything visible.
-3. **Band labels are NOT Plotly's built-in node `label` — they're separate
-   `paper`-space annotations in a reserved left gutter (`_LABEL_GUTTER`).**
-   `go.Sankey` draws a leftmost-column node's label to ITS LEFT by default,
-   but this view's leftmost node sits at x≈0.005 with no room to its left —
-   verified empirically (screenshot, 2026-09-11): Plotly instead draws the
-   text ON TOP of the node bar and the ribbons immediately behind it, which
-   is the "labels are unreadable" defect reported from the phone. Shrinking
-   the Sankey's own `domain` to `[_LABEL_GUTTER, 1.0]` and placing each band
-   name as its own annotation at x=0 fixes this — Plotly's Sankey `y` and
-   `paper`-space `y` run in OPPOSITE directions (confirmed empirically), so
-   an annotation's y is `1 - <that node's y>`, not the same value.
-4. **Ribbons are colored by DIRECTION, not by source band** (before
-   2026-09-11 every ribbon was a shade of the source band's own color, i.e.
-   mostly the same pale green — "nothing signals which move matters").
-   Reuses `theme_grid`'s own `_DELTA_UP` / `_DELTA_DOWN` / `_DELTA_FLAT` —
-   the SAME green/red/grey vocabulary the Grid view's own rank-change chips
-   already use, so "green = improved, red = worsened" means the same thing
-   on both tabs. Same-band ("flat") ribbons additionally get a much lower
-   opacity (0.12 vs 0.5-0.55) — they're still drawn (a cohort holding a
-   real rank is a fact, not a gap), but ink is weighted toward the moves
-   that actually answer "which themes are climbing," per the operator's own
-   question, rather than the boring "stayed put" case that used to dominate
-   the page.
+1. **Only the "New / unranked → New / unranked" self-loop is dropped** by
+   `compute_band_flow` (zero information: no data two weeks running). Over a
+   single hop it cannot occur anyway — the population is cohorts on the board
+   in at least one of the two weeks — so every node's total is exactly its
+   band population and the sentence, the labels and the ribbons all add up to
+   the same cohort count.
+2. **Node position is the node's CENTRE, and a zero coordinate is ignored.**
+   Read off plotly.min.js 6.9.0's sankey renderer: with `arrangement="fixed"`
+   it sets `y0 = y*height - h/2, y1 = y*height + h/2` for every node whose
+   `x` AND `y` are truthy. `_node_layout` therefore reproduces d3-sankey's own
+   height rule (`ky = (H - (n-1)*pad) / column_total`) so the margin labels
+   land on their nodes, and no node is ever placed at exactly 0.
+3. **An empty band still needs a link or Plotly drops the node** and the
+   column's other nodes shift to fill the gap (the rows would appear to
+   reorder). A ZERO-value link does not count — Plotly drops it AND the
+   node, and the fixed positions then land on the wrong nodes (rendered and
+   seen 2026-09-19). The old build's transparent 0.3-value SELF-loop kept
+   the node but made the graph circular, which moves the node's column in
+   the layout pass and throws the height rule in (2) off. So: a transparent
+   0.3-value link from the empty band's SOURCE node to the same band's
+   TARGET node. It adds 0.3 to both column totals alike, `_node_layout` is
+   given the same values, and the empty node draws as a ~2px hairline under
+   its label.
+4. **Ribbons are colored by DIRECTION** (`theme_grid`'s `_DELTA_UP` /
+   `_DELTA_DOWN` / `_DELTA_FLAT` — the same green/red/grey the Grid's
+   rank-change chips use). **A move into or out of `New / unranked` is
+   directional too (2026-09-19).** The 09-11 build painted those neutral,
+   reasoning that a band meaning "absent OR a data gap" must not read as a
+   climb or a fall. The measurement above answered that: leaving the band is
+   a theme being born (18 of 20), and a null rank is the engine marking the
+   theme fading/retired, never a snapshot hole. Painting `New / unranked →
+   Top 5` grey would also contradict the sentence above it, which counts it
+   as a climb — the header and the ribbons must agree. Held ribbons are
+   drawn at lower opacity than moves, but only mildly: on a single hop the
+   stayers are 3 of 55, not the bulk.
 """
 from __future__ import annotations
 
@@ -106,25 +102,42 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from theme_data import get_canonical_weekly_grid, get_canonical_weeks_on_file, get_top_members_by_rs
+from theme_data import get_canonical_weekly_grid, get_top_members_by_rs
 # Reuse Grid's exact rank→color mapping (not a new ramp) so this view and the
-# Grid/Heatmap read as ONE visual system — "brighter green = better rank" is
-# already the app's established language; inventing a second one here would
-# make the same number mean two different things on two tabs. _DELTA_UP/DOWN/
-# FLAT are the SAME reuse principle applied to ribbon color (see module
-# docstring point 4) — Grid's own rank-change chips already use this
-# green/red/grey vocabulary for "improved / worsened / flat."
+# Grid read as ONE visual system — "brighter green = better rank" is already
+# the app's established language. _DELTA_UP/DOWN/FLAT are the same reuse
+# principle applied to ribbon color (module docstring point 4).
 from theme_grid import _DELTA_DOWN, _DELTA_FLAT, _DELTA_UP, _rank_color
 from theme_palette import active
 
 _OUTSIDE_BOUND = 30   # rank <= this is "on the board"; matches the population
                       # theme_bump.py's Top-N selector also treats as meaningful
-_KNOWN_LOW_BAND = "31+"      # known week_rank, just worse than the board cut
-_NO_RANK_BAND = "No rank"    # no usable rank at all that week — never seen or a data gap
+_KNOWN_LOW_BAND = "31+"              # known week_rank, just worse than the board cut
+_NO_RANK_BAND = "New / unranked"     # no usable rank at all that week — see module docstring "The bands"
 _BAND_ORDER = ["Top 5", "6-15", "16-30", _KNOWN_LOW_BAND, _NO_RANK_BAND]   # fixed row order, top→bottom
 _BAND_REPR_RANK = {"Top 5": 3, "6-15": 10, "16-30": 23}  # -> _rank_color(); the two lower bands are special-cased below
 _BAND_RANK = {b: i for i, b in enumerate(_BAND_ORDER)}   # 0 = best row — used to sign a ribbon's direction
-_LABEL_GUTTER = 0.11   # fraction of figure width reserved for band-name annotations (see module docstring point 3)
+
+_DEFAULT_HOP = 4                # weeks back, by default — see module docstring (95% movers vs 85% at one week)
+_HOP_OPTIONS = (1, 2, 4, 8)     # the picker STAYS: a fast one-week move must be one click away
+_ALL_HISTORY_WEEKS = 520        # "everything on file" sentinel, same as theme_forward.py — the caption
+                                # needs the full history to say whether a cohort was ever ranked before
+
+# Chart geometry — pixels, not fractions, so the label gutters are the same
+# width on a 390px phone and a 1400px desktop; only the ribbon span flexes.
+_FIG_HEIGHT = 480
+_MARGIN_T, _MARGIN_B = 30, 8
+_LABEL_MARGIN = 118             # px each side — "New / unranked" at 11px bold clipped at 104 (rendered 2026-09-19)
+_LABEL_GAP = 6                  # px between a node and its label
+_NODE_PAD = 14                  # px between bands — a 2-line label on a 1-cohort node spills ~10px each side
+_NODE_THICKNESS = 12
+_X_SRC, _X_TGT = 0.02, 0.98     # never exactly 0: Plotly skips a falsy coordinate (module docstring point 2)
+_KEEP_ALIVE = 0.3               # value of the transparent link that keeps an empty band's nodes (point 3)
+_CHART_MAX_WIDTH = 560          # st.container cap — a phone still gets its full width
+_ALPHA_UP, _ALPHA_DOWN, _ALPHA_HELD = 0.55, 0.5, 0.35
+_LIST_NAMES = 1                 # names shown per ribbon in the movers list before "+N more" — the
+                                # mockup's form; three a line ran to five wrapped rows per ribbon at 390px
+_HOVER_NAMES = 6                # names shown in a ribbon's tap/hover text
 
 
 def _band_colors() -> dict[str, str]:
@@ -134,7 +147,7 @@ def _band_colors() -> dict[str, str]:
     fill (`cell_blank_bg`): those were calibrated for a bordered TABLE CELL
     sitting next to other cells (Grid), where a near-background gray still
     reads because the border delineates it. Measured directly against the
-    page background — where THIS band's floating, borderless Sankey nodes
+    page background — where THIS view's floating, borderless Sankey nodes
     and ribbons actually sit — `cell_out_bg` comes out to ~1.15:1 contrast
     in both themes, i.e. nearly invisible, which would hide every "fell out
     of the top 30" / "climbed back in" ribbon: exactly the demotion signal
@@ -142,10 +155,10 @@ def _band_colors() -> dict[str, str]:
       - "31+" (known, low rank) uses `cell_out_txt` (~2.6-2.9:1 against the
         page) — the same tone Grid's own "known but below the floor" cells
         use, chosen for legibility against that near-background fill.
-      - "No rank" (no data at all) uses `border` (~1.4-1.55:1) — dimmer
-        than "31+" on purpose (an absence of data should recede further
-        than a known-bad fact), while still clearing the ~1.15:1 floor
-        already established above as "nearly invisible" for this chart."""
+      - "New / unranked" (no data at all) uses `border` (~1.4-1.55:1) —
+        dimmer than "31+" on purpose (an absence of data should recede
+        further than a known-bad fact), while still clearing the ~1.15:1
+        floor already established above as "nearly invisible" for this chart."""
     P = active()
     colors = {b: _rank_color(_BAND_REPR_RANK[b])[0] for b in _BAND_ORDER if b in _BAND_REPR_RANK}
     colors[_KNOWN_LOW_BAND] = P["cell_out_txt"]
@@ -238,28 +251,312 @@ def compute_band_flow(
     return band_piv, links
 
 
+def _direction(b0: str, b1: str) -> int:
+    """+1 = climbed toward the top row, -1 = fell toward the bottom, 0 = held.
+    Signed by _BAND_RANK (lower index = better row) — INCLUDING moves into
+    or out of `New / unranked`; see module docstring point 4 for why that
+    band is directional since 2026-09-19."""
+    delta = _BAND_RANK[b0] - _BAND_RANK[b1]
+    return (delta > 0) - (delta < 0)
+
+
 def _ribbon_color(b0: str, b1: str) -> str:
-    """Ribbon fill for a band0->band1 transition — see module docstring
-    point 4. Direction is signed by _BAND_RANK (lower index = a better
-    row): a positive delta moved toward the top (promotion, green), a
-    negative delta moved toward the bottom (demotion, red), zero held its
-    band (flat, grey) at much lower opacity so ink is weighted toward the
-    moves that actually answer "which themes are climbing" rather than the
-    boring "stayed put" case."""
-    # A MOVE INVOLVING "No rank" IS NOT A STRENGTH MOVE (2026-09-11). `_BAND_RANK` puts No-rank
-    # at the bottom, so a plain delta paints "we stopped having data" red as a demotion and "data
-    # came back" green as a promotion. That is this task's own defect — a data fact rendered as a
-    # strength fact — relocated into the colour channel, so it is fixed rather than left as a
-    # preference. Neutral, but at full opacity: appearing or disappearing IS worth seeing, it just
-    # is not a climb or a fall. The card flagged this and left it; it is correctness, not styling.
-    if _NO_RANK_BAND in (b0, b1) and b0 != b1:
-        return _to_rgba(_DELTA_FLAT, 0.45)
-    band_delta = _BAND_RANK[b0] - _BAND_RANK[b1]
-    if band_delta > 0:
-        return _to_rgba(_DELTA_UP, 0.55)
-    if band_delta < 0:
-        return _to_rgba(_DELTA_DOWN, 0.5)
-    return _to_rgba(_DELTA_FLAT, 0.12)
+    """Ribbon fill for a band0->band1 transition — module docstring point 4.
+    A climb is green, a fall red, a hold grey at mildly lower opacity."""
+    d = _direction(b0, b1)
+    if d > 0:
+        return _to_rgba(_DELTA_UP, _ALPHA_UP)
+    if d < 0:
+        return _to_rgba(_DELTA_DOWN, _ALPHA_DOWN)
+    return _to_rgba(_DELTA_FLAT, _ALPHA_HELD)
+
+
+def summarize_transition(links: dict[tuple[int, str, str], dict]) -> dict:
+    """The sentence above the chart, from `compute_band_flow`'s `links`.
+
+    Returns {"climbed", "fell", "held", "total": cohort counts, "biggest": the
+    single biggest move or None}. "Biggest" = the largest band DISTANCE
+    (`New / unranked → Top 5` is 4 rows); at equal distance a climb beats a
+    fall (the operator's question is which themes are climbing); inside the
+    winning ribbon the first name alphabetically is shown and the rest are
+    reported as `others` (so the page can say "3 more made the same move").
+    Deterministic, so the same links always name the same cohort.
+    Sums every link passed, whatever its week index — the page passes a
+    single hop, so the three counts add up to the cohort population."""
+    climbed = fell = held = 0
+    best: dict | None = None
+    best_key: tuple = ()
+    for (_i, b0, b1), entry in links.items():
+        d = _direction(b0, b1)
+        n = int(entry["count"])
+        if d > 0:
+            climbed += n
+        elif d < 0:
+            fell += n
+        else:
+            held += n
+        if d == 0:
+            continue
+        distance = abs(_BAND_RANK[b0] - _BAND_RANK[b1])
+        name = min(entry["names"])
+        key = (distance, d > 0)
+        if best is None or key > best_key or (key == best_key and name < best["name"]):
+            best_key = key
+            best = {
+                "name": name, "from": b0, "to": b1, "count": n, "others": n - 1,
+                "direction": "climb" if d > 0 else "fall", "distance": distance,
+            }
+    return {"climbed": climbed, "fell": fell, "held": held,
+            "total": climbed + fell + held, "biggest": best}
+
+
+def band_shares(band_piv: pd.DataFrame, week: date) -> dict[str, tuple[int, float]]:
+    """{band: (count, share of the population)} for one week's column of
+    `band_piv`, every band present (zero if empty) in `_BAND_ORDER` order.
+    Share denominator = the whole population, the same for both weeks, so
+    the two columns' percentages are comparable."""
+    total = len(band_piv)
+    counts = band_piv[week].value_counts() if total else {}
+    return {
+        b: (int(counts.get(b, 0)), (int(counts.get(b, 0)) / total) if total else 0.0)
+        for b in _BAND_ORDER
+    }
+
+
+def band_label(band: str, count: int, share: float) -> str:
+    """The permanent on-chart node label: `16-30 · 15 · 27%`."""
+    return f"{band} · {count} · {share:.0%}"
+
+
+def classify_unranked_edges(
+    grid: pd.DataFrame, band_piv: pd.DataFrame, w0: date, w1: date,
+) -> dict:
+    """WHY cohorts crossed into or out of `New / unranked` on this hop — the
+    caption's honesty, computed rather than hard-coded (operator ruling
+    2026-09-19: rename the band, state the split in words).
+
+    Returns {
+      "left":    {"new": never had a ranked week before w0,
+                  "unscored": a row exists at w0 but its rank is null,
+                  "returning": ranked in some week before w0, no row at w0},
+      "entered": {"unscored": a row exists at w1 but its rank is null,
+                  "absent": no row at w1},
+      "history_weeks": usable weeks in `grid` before w0 — the horizon "new"
+                       is judged against (a theme first ranked before the
+                       file starts reads as new: the share is a floor).
+    }
+    Reproduces the 18 / 2 / 0 measurement in the design doc for the
+    2026-08-17 → 09-14 hop. `grid` must be the FULL history, not a window
+    (get_canonical_weekly_grid(weeks=_ALL_HISTORY_WEEKS))."""
+    left = {"new": 0, "unscored": 0, "returning": 0}
+    entered = {"unscored": 0, "absent": 0}
+    if band_piv.empty:
+        return {"left": left, "entered": entered, "history_weeks": 0}
+    ranked = grid[grid["week_rank"].notna()]
+    ranked_before = set(ranked.loc[ranked["week_start"] < w0, "canonical_id"])
+    rows_w0 = set(grid.loc[grid["week_start"] == w0, "canonical_id"])
+    rows_w1 = set(grid.loc[grid["week_start"] == w1, "canonical_id"])
+
+    for cid in band_piv.index[(band_piv[w0] == _NO_RANK_BAND) & (band_piv[w1] != _NO_RANK_BAND)]:
+        if cid in rows_w0:            # a row that week, rank null
+            left["unscored"] += 1
+        elif cid in ranked_before:
+            left["returning"] += 1
+        else:
+            left["new"] += 1
+    for cid in band_piv.index[(band_piv[w1] == _NO_RANK_BAND) & (band_piv[w0] != _NO_RANK_BAND)]:
+        if cid in rows_w1:
+            entered["unscored"] += 1
+        else:
+            entered["absent"] += 1
+    history_weeks = int(ranked.loc[ranked["week_start"] < w0, "week_start"].nunique())
+    return {"left": left, "entered": entered, "history_weeks": history_weeks}
+
+
+def _node_values(src_counts: list[int], tgt_counts: list[int]) -> tuple[list[float], list[float]]:
+    """Per-node throughput as Plotly will see it: the band's cohort count
+    plus `_KEEP_ALIVE` on BOTH sides wherever either side is empty (that is
+    exactly the link `build_flow_figure` adds — module docstring point 3)."""
+    keep = [_KEEP_ALIVE if (s == 0 or t == 0) else 0.0 for s, t in zip(src_counts, tgt_counts)]
+    return [s + k for s, k in zip(src_counts, keep)], [t + k for t, k in zip(tgt_counts, keep)]
+
+
+def _node_layout(
+    src_vals: list[float], tgt_vals: list[float], plot_height: float, pad: float,
+) -> tuple[list[float], list[float]]:
+    """Centre y (fraction of the plot height, Sankey top-down) for each band
+    in `_BAND_ORDER`, one list per column, reproducing d3-sankey's own
+    height rule so the margin annotations sit on their nodes (module
+    docstring point 2): `ky = (H - (n-1)*pad) / max column total`, node
+    height = value * ky, nodes stacked from the top with `pad` between.
+    `src_vals`/`tgt_vals` come from `_node_values` (counts plus keep-alive),
+    so an empty band is a ~2px hairline and its label sits on it. Never
+    returns exactly 0.0 — Plotly ignores a falsy coordinate."""
+    n = len(src_vals)
+    total = max(sum(src_vals), sum(tgt_vals), 1e-9)
+    ky = (plot_height - (n - 1) * pad) / total
+    out: list[list[float]] = []
+    for vals in (src_vals, tgt_vals):
+        y = 0.0
+        centres = []
+        for v in vals:
+            h = v * ky
+            centres.append(max((y + h / 2) / plot_height, 1e-6))
+            y += h + pad
+        out.append(centres)
+    return out[0], out[1]
+
+
+_MD_SPECIALS = str.maketrans({c: "\\" + c for c in "*_`[]<>#~"})
+
+
+def _md(text: str) -> str:
+    """A theme name inside st.markdown: backslash-escape the characters
+    markdown would format (`*`, `_`, backtick, brackets…). Not HTML-escaped —
+    `&amp;` would show literally in markdown, and HTML is off by default."""
+    return str(text).translate(_MD_SPECIALS)
+
+
+def movers_lines(links: dict[tuple[int, str, str], dict], names_per_line: int = _LIST_NAMES) -> list[str]:
+    """The movers list under the chart, as markdown lines: one per ribbon
+    that changed band, biggest band distance first (climbs before falls at
+    equal distance, then the larger ribbon), each naming up to
+    `names_per_line` cohorts and "+N more". The stay-put ribbons collapse to
+    ONE trailing line with their count. Pure — testable without Streamlit."""
+    movers, held_names = [], []
+    for (_i, b0, b1), entry in links.items():
+        d = _direction(b0, b1)
+        if d == 0:
+            held_names.extend(entry["names"])
+            continue
+        movers.append((abs(_BAND_RANK[b0] - _BAND_RANK[b1]), d, int(entry["count"]), b0, b1, sorted(entry["names"])))
+    movers.sort(key=lambda m: (-m[0], -m[1], -m[2], m[3]))
+
+    def _names(names: list[str]) -> str:
+        shown = ", ".join(_md(n) for n in names[:names_per_line])
+        more = len(names) - min(len(names), names_per_line)
+        return shown + (f", +{more} more" if more > 0 else "")
+
+    lines = [
+        f"{':green[▲]' if d > 0 else ':red[▼]'} **{b0} → {b1}** · {n} — {_names(names)}"
+        for _dist, d, n, b0, b1, names in movers
+    ]
+    if held_names:
+        lines.append(f":grey[—] **held their band** · {len(held_names)} — {_names(sorted(held_names))}")
+    return lines
+
+
+def build_flow_figure(
+    band_piv: pd.DataFrame,
+    links: dict[tuple[int, str, str], dict],
+    w0: date,
+    w1: date,
+    left_header: str,
+    right_header: str,
+) -> go.Figure:
+    """The two-column Sankey for ONE hop (`links` from a two-week
+    `compute_band_flow` call, so every key's week index is 0). Pure Plotly —
+    testable without Streamlit. Geometry per the module docstring: fixed
+    node centres from `_node_layout`, labels as annotations in the pixel
+    margins, a zero-value transparent link keeping any empty band's nodes
+    alive, ribbons coloured by `_ribbon_color`."""
+    P = active()
+    band_color = _band_colors()
+    src, tgt = band_shares(band_piv, w0), band_shares(band_piv, w1)
+    plot_h = _FIG_HEIGHT - _MARGIN_T - _MARGIN_B
+    src_vals, tgt_vals = _node_values([src[b][0] for b in _BAND_ORDER], [tgt[b][0] for b in _BAND_ORDER])
+    ys_src, ys_tgt = _node_layout(src_vals, tgt_vals, plot_h, _NODE_PAD)
+    n_bands = len(_BAND_ORDER)
+    node_index = {(0, b): i for i, b in enumerate(_BAND_ORDER)}
+    node_index.update({(1, b): n_bands + i for i, b in enumerate(_BAND_ORDER)})
+    xs = [_X_SRC] * n_bands + [_X_TGT] * n_bands
+    ys = ys_src + ys_tgt
+    node_color = [band_color[b] for b in _BAND_ORDER] * 2
+    node_hover = [
+        f"{_html.escape(b)} · {_html.escape(left_header)}<br>{src[b][0]} cohort(s) · {src[b][1]:.0%}"
+        for b in _BAND_ORDER
+    ] + [
+        f"{_html.escape(b)} · {_html.escape(right_header)}<br>{tgt[b][0]} cohort(s) · {tgt[b][1]:.0%}"
+        for b in _BAND_ORDER
+    ]
+
+    sources: list[int] = []
+    targets: list[int] = []
+    values: list[float] = []
+    link_colors: list[str] = []
+    hover_text: list[str] = []
+    for (_i, b0, b1), entry in sorted(links.items(), key=lambda kv: (_BAND_RANK[kv[0][1]], _BAND_RANK[kv[0][2]])):
+        sources.append(node_index[(0, b0)])
+        targets.append(node_index[(1, b1)])
+        values.append(float(entry["count"]))
+        link_colors.append(_ribbon_color(b0, b1))
+        names = sorted(entry["names"])
+        preview = "<br>".join(_html.escape(n) for n in names[:_HOVER_NAMES])
+        if len(names) > _HOVER_NAMES:
+            preview += f"<br>…+{len(names) - _HOVER_NAMES} more"
+        hover_text.append(
+            f"<b>{_html.escape(b0)} → {_html.escape(b1)}</b><br>"
+            f"{entry['count']} cohort(s)<br>{preview}<extra></extra>"
+        )
+    # Keep-alive for empty bands — module docstring point 3. Transparent, no
+    # hover, and the SAME value `_node_values` assumed, or the labels drift.
+    for b in _BAND_ORDER:
+        if src[b][0] == 0 or tgt[b][0] == 0:
+            sources.append(node_index[(0, b)])
+            targets.append(node_index[(1, b)])
+            values.append(_KEEP_ALIVE)
+            link_colors.append("rgba(0,0,0,0)")
+            hover_text.append("<extra></extra>")
+
+    fig = go.Figure(go.Sankey(
+        arrangement="fixed",
+        node=dict(
+            label=[""] * (2 * n_bands),   # labels are the margin annotations below, never Plotly's own
+            x=xs, y=ys, color=node_color, pad=_NODE_PAD, thickness=_NODE_THICKNESS,
+            line=dict(width=0),
+            customdata=node_hover, hovertemplate="%{customdata}<extra></extra>",
+        ),
+        link=dict(source=sources, target=targets, value=values, color=link_colors, hovertemplate=hover_text),
+    ))
+
+    muted = _to_rgba(P["chart_font"], 0.7)
+    # Sankey y runs top(0)→bottom(1); paper y runs bottom(0)→top(1) — hence 1 - y.
+    for b, y in zip(_BAND_ORDER, ys_src):
+        fig.add_annotation(
+            x=0, xshift=-_LABEL_GAP, y=1 - y, xref="paper", yref="paper", xanchor="right", yanchor="middle",
+            text=f"<b>{_html.escape(b)}</b><br><span style='font-size:9.5px;color:{muted}'>"
+                 f"{src[b][0]} · {src[b][1]:.0%}</span>",
+            showarrow=False, align="right", font=dict(size=11, color=P["chart_font"]),
+        )
+    for b, y in zip(_BAND_ORDER, ys_tgt):
+        fig.add_annotation(
+            x=1, xshift=_LABEL_GAP, y=1 - y, xref="paper", yref="paper", xanchor="left", yanchor="middle",
+            text=f"<b>{_html.escape(b)}</b><br><span style='font-size:9.5px;color:{muted}'>"
+                 f"{tgt[b][0]} · {tgt[b][1]:.0%}</span>",
+            showarrow=False, align="left", font=dict(size=11, color=P["chart_font"]),
+        )
+    # Column headers hang from the figure's OUTER edges (the margin plus the
+    # plot), so they never clip however narrow the ribbon span gets.
+    fig.add_annotation(
+        x=0, xshift=-(_LABEL_MARGIN - 2), y=1, yshift=12, xref="paper", yref="paper",
+        xanchor="left", yanchor="bottom",
+        text=_html.escape(left_header).upper(), showarrow=False, font=dict(size=9.5, color=muted),
+    )
+    fig.add_annotation(
+        x=1, xshift=_LABEL_MARGIN - 2, y=1, yshift=12, xref="paper", yref="paper",
+        xanchor="right", yanchor="bottom",
+        text=_html.escape(right_header).upper(), showarrow=False, font=dict(size=9.5, color=muted),
+    )
+    fig.update_layout(
+        height=_FIG_HEIGHT,
+        margin=dict(l=_LABEL_MARGIN, r=_LABEL_MARGIN, t=_MARGIN_T, b=_MARGIN_B),
+        # Same theme-aware chart surface as theme_bump.py's Plotly figures
+        # (not transparent) — the annotations render in a fixed font color
+        # and need a KNOWN surface to stay legible.
+        paper_bgcolor=P["chart_paper"], plot_bgcolor=P["chart_plot"],
+        font=dict(size=12, color=P["chart_font"]),
+    )
+    return fig
 
 
 def _usable_weeks(canon_grid: pd.DataFrame) -> list[date]:
@@ -272,220 +569,136 @@ def _usable_weeks(canon_grid: pd.DataFrame) -> list[date]:
     ]
 
 
+def _fmt_week(w: date) -> str:
+    return w.strftime("%-d %b") if hasattr(w, "strftime") else str(w)
+
+
 def render_flow() -> None:
     st.header("Theme Rank Flow")
     st.caption(
-        "Which cohorts are climbing toward the top of the board, and which are "
-        "sliding out of it — same canonical identity as the Bump Chart (#315), "
-        "shown as band-to-band flow instead of crossing lines. Ribbon thickness "
-        "= how many cohorts made that move; rows never reorder, so a rising "
-        "ribbon always means 'got stronger'."
+        "One hop, in words and one picture: which cohorts climbed toward the top "
+        "of the board and which slid out of it between two weeks — same canonical "
+        "identity as the Bump Chart and Weekly Movers. Ribbon width = how many "
+        "cohorts made that move; rows never reorder."
     )
+
+    grid = get_canonical_weekly_grid(weeks=_ALL_HISTORY_WEEKS)
+    if grid.empty:
+        st.info("No canonical theme data on file.")
+        return
+    weeks = _usable_weeks(grid)
+    if len(weeks) < 2:
+        st.info("Fewer than 2 usable weeks on file — nothing to flow between.")
+        return
 
     with st.sidebar:
         st.subheader("Rank flow")
-        weeks_n = st.slider(
-            "Weeks of history", min_value=4, max_value=20, value=10, step=1,
-            help="More weeks = more columns, not more detail per column — "
-                 "past ~14 the ribbons get thin. Depth caption below shows "
-                 "what's actually on file.",
+        w1 = st.selectbox(
+            "Week", options=list(reversed(weeks)), index=0, format_func=_fmt_week, key="flow_week",
+            help="The week on the right of the chart. Latest on file by default.",
         )
-
-    canon_grid = get_canonical_weekly_grid(weeks=weeks_n)
-    if canon_grid.empty:
-        st.info("No canonical theme data in this window.")
+        hop = st.selectbox(
+            "Compared with", options=list(_HOP_OPTIONS), index=_HOP_OPTIONS.index(_DEFAULT_HOP),
+            format_func=lambda h: f"{h} week{'s' if h > 1 else ''} earlier", key="flow_hop",
+            help="Four weeks is the default: the same number of ribbons as one week, "
+                 "but 95% of the cohorts actually moved (85% at one week). A fast "
+                 "one-week move is one click away.",
+        )
+    i1 = weeks.index(w1)
+    i0 = max(0, i1 - hop)
+    if i0 == i1:
+        st.info(f"No usable week on file before {_fmt_week(w1)} to compare with.")
         return
+    w0 = weeks[i0]
+    actual_hop = i1 - i0
 
-    weeks = _usable_weeks(canon_grid)
-    if len(weeks) < 2:
-        st.info("Fewer than 2 usable weeks in this window — nothing to flow between.")
-        return
-
-    sub = canon_grid[canon_grid["week_start"].isin(weeks)]
-    id_to_name = sub.drop_duplicates("canonical_id").set_index("canonical_id")["canonical_name"]
-
-    # Population + band-of-each-cohort-each-week + week-to-week transitions —
-    # see compute_band_flow's own docstring; pulled out to a pure function so
-    # it's testable without Streamlit/Plotly (test_theme_flow.py).
-    band_piv, links = compute_band_flow(canon_grid, weeks)
+    band_piv, links = compute_band_flow(grid, [w0, w1])
     if band_piv.empty:
-        st.info(f"No cohort reached the top {_OUTSIDE_BOUND} in this window.")
+        st.info(f"No cohort reached the top {_OUTSIDE_BOUND} in either week.")
         return
-    on_board_ids = band_piv.index
+    n_cohorts = len(band_piv)
+    summary = summarize_transition(links)
+    left_header = f"{actual_hop} week{'s' if actual_hop > 1 else ''} ago · {_fmt_week(w0)}"
+    right_header = f"{_fmt_week(w1)}" + (" · now" if i1 == len(weeks) - 1 else "")
 
-    n_weeks, n_bands = len(weeks), len(_BAND_ORDER)
-    node_index: dict[tuple[int, str], int] = {}
-    labels: list[str] = []
-    xs: list[float] = []
-    ys: list[float] = []
-    for wi in range(n_weeks):
-        for bi, band in enumerate(_BAND_ORDER):
-            node_index[(wi, band)] = len(labels)
-            labels.append("")   # no built-in node labels — see module docstring point 3
-            xs.append(0.005 + wi / (n_weeks - 1) * 0.99)
-            ys.append(0.02 + bi / (n_bands - 1) * 0.96)
-
-    band_color = _band_colors()
-    node_color = [band_color[b] for _wi in range(n_weeks) for b in _BAND_ORDER]
-
-    # node_link_total tracks ONLY whether a node has any plotted link touching
-    # it — purely the zero-throughput predicate for the keep-alive fix below.
-    # It is NOT a cohort count: an interior week's node collects both an
-    # inbound link (from i-1) and an outbound link (to i+1) that both equal
-    # that same band's population, so summing them double-counts; and the
-    # worst band's dropped self-loop (module docstring point 1) means a node
-    # can hold dozens of cohorts while touching zero plotted links. The real
-    # per-node population is `band_piv[week].value_counts()` — computed
-    # separately below as `node_population` and used for hover instead.
-    node_link_total = {k: 0 for k in node_index}
-    sources: list[int] = []
-    targets: list[int] = []
-    values: list[float] = []
-    link_colors: list[str] = []
-    hover_text: list[str] = []
-    _NAME_PREVIEW = 6
-    for (i, b0, b1), entry in links.items():
-        s, t = node_index[(i, b0)], node_index[(i + 1, b1)]
-        sources.append(s); targets.append(t); values.append(float(entry["count"]))
-        # Color by DIRECTION, not by source band — see _ribbon_color/module
-        # docstring point 4.
-        link_colors.append(_ribbon_color(b0, b1))
-        names = sorted(entry["names"])
-        shown = names[:_NAME_PREVIEW]
-        more = len(names) - len(shown)
-        preview = "<br>".join(_html.escape(n) for n in shown)
-        if more > 0:
-            preview += f"<br>…+{more} more"
-        hover_text.append(
-            f"<b>{_html.escape(b0)} → {_html.escape(b1)}</b><br>"
-            f"{entry['count']} cohort(s)<br>{preview}<extra></extra>"
-        )
-        node_link_total[(i, b0)] += entry["count"]
-        node_link_total[(i + 1, b1)] += entry["count"]
-
-    # Keep-alive self-loops — see module docstring point 2. Fully transparent,
-    # excluded from hover via an empty template.
-    for key, total in node_link_total.items():
-        if total == 0:
-            n = node_index[key]
-            sources.append(n); targets.append(n); values.append(0.3)
-            link_colors.append("rgba(0,0,0,0)")
-            hover_text.append("<extra></extra>")
-
-    # Real per-node population — how many cohorts actually sat in that band
-    # that week, straight off band_piv (not derived from links; see comment
-    # above). Node hover uses this via customdata rather than `label` — every
-    # node's `label` is now blank (module docstring point 3), so hover is the
-    # only way to identify a node; this must stand in for it correctly.
-    node_population = {
-        (wi, band): int((band_piv[weeks[wi]] == band).sum())
-        for wi in range(n_weeks) for band in _BAND_ORDER
-    }
-    node_customdata = [
-        f"{band}, week of {weeks[wi]}<br>{node_population[(wi, band)]} cohort(s)"
-        for wi in range(n_weeks) for band in _BAND_ORDER
-    ]
-
-    P = active()
-    fig = go.Figure(go.Sankey(
-        arrangement="fixed",
-        # Reserve a left gutter for the band-name annotations below instead
-        # of Plotly's own node `label` — see module docstring point 3.
-        domain=dict(x=[_LABEL_GUTTER, 1.0], y=[0, 1]),
-        node=dict(
-            label=labels, x=xs, y=ys, color=node_color, pad=8, thickness=12,
-            line=dict(width=0),
-            customdata=node_customdata,
-            hovertemplate="%{customdata}<extra></extra>",
-        ),
-        link=dict(
-            source=sources, target=targets, value=values, color=link_colors,
-            hovertemplate=hover_text,
-        ),
-    ))
-    # Band-name row labels, once per row (not per week — a row's y position
-    # is the same in every column). Sankey `y` runs top(0)→bottom(1) but
-    # `paper`-space `y` runs bottom(0)→top(1) — confirmed empirically while
-    # building this fix, hence the `1 - sankey_y` flip (module docstring
-    # point 3). x=0.0 sits inside the reserved gutter, left of every node.
-    for bi, band in enumerate(_BAND_ORDER):
-        sankey_y = 0.02 + bi / (n_bands - 1) * 0.96
-        fig.add_annotation(
-            x=0.0, y=1 - sankey_y, xref="paper", yref="paper",
-            text=band, showarrow=False, xanchor="left", yanchor="middle",
-            font=dict(size=11, color=P["chart_font"]),
-        )
-    for wi, w in enumerate(weeks):
-        # Node x is relative to the Sankey's OWN domain (shrunk to
-        # [_LABEL_GUTTER, 1.0] above); a week annotation lives in full
-        # `paper` space, so it needs the same domain rescale to land under
-        # its column instead of drifting left of it.
-        node_x = 0.005 + wi / (n_weeks - 1) * 0.99
-        paper_x = _LABEL_GUTTER + node_x * (1 - _LABEL_GUTTER)
-        fig.add_annotation(
-            x=paper_x, y=-0.06, xref="paper", yref="paper",
-            text=w.strftime("%-m/%-d") if hasattr(w, "strftime") else str(w),
-            showarrow=False, font=dict(size=10, color=P["chart_font"]), textangle=-45,
-        )
-    fig.update_layout(
-        height=560, margin=dict(l=10, r=10, t=10, b=70),
-        # Same theme-aware chart surface as theme_bump.py's Plotly figures
-        # (not transparent) — a transparent paper_bgcolor would silently rely
-        # on whatever sits behind it, and the band/week annotations (rendered
-        # in a fixed font color) need a KNOWN surface to stay legible.
-        paper_bgcolor=P["chart_paper"], plot_bgcolor=P["chart_plot"],
-        font=dict(size=12, color=P["chart_font"]),
-    )
-    st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
-
+    # ── The answer in a sentence ───────────────────────────────────────────
     st.caption(
-        f"Rows top→bottom: {' · '.join(_BAND_ORDER)}. Latest week **{weeks[-1]}**, "
-        # get_canonical_weeks_on_file (not a second get_canonical_weekly_grid
-        # call) — weeks=24 here never shares a cache key with weeks_n above
-        # (slider caps at 20), so a second full grid call would be a
-        # guaranteed cache miss just to report a count; this reads the count
-        # off get_canonical_themes() directly instead.
-        f"{len(weeks)} week(s) of {get_canonical_weeks_on_file(weeks=24)} "
-        "total on file · "
-        f"{len(on_board_ids)} cohort(s) reached the top {_OUTSIDE_BOUND} in this window. "
-        "⚠ Small/young cohorts (most theme rows carry under 3 tickers) can only be "
-        "matched across days by name, not ticker set, so this count understates real "
-        "fragmentation — read it as directional, not exact."
+        f"{_fmt_week(w0)} → {_fmt_week(w1)} · {actual_hop}-week hop · {n_cohorts} cohorts"
+        + (f" (only {actual_hop} week(s) on file before {_fmt_week(w1)})" if actual_hop < hop else "")
+    )
+    st.markdown(
+        f"### :green[{summary['climbed']} climbed] · :red[{summary['fell']} fell] · "
+        f":grey[{summary['held']} held]"
+    )
+    big = summary["biggest"]
+    if big:
+        others = f" ({big['others']} more made the same move)" if big["others"] > 0 else ""
+        st.markdown(f"Biggest {big['direction']} — **{_md(big['name'])}**, {big['from']} → {big['to']}{others}.")
+
+    # ── The chart ──────────────────────────────────────────────────────────
+    with st.container(width=_CHART_MAX_WIDTH):
+        fig = build_flow_figure(band_piv, links, w0, w1, left_header, right_header)
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+    # ── The caption: legend + the New / unranked honesty, computed ─────────
+    edges = classify_unranked_edges(grid, band_piv, w0, w1)
+    left_n, entered_n = sum(edges["left"].values()), sum(edges["entered"].values())
+    honesty = []
+    if left_n:
+        honesty.append(
+            f"Of the {left_n} that climbed out of {_NO_RANK_BAND}: {edges['left']['new']} had never "
+            f"been ranked in the {edges['history_weeks']} week(s) on file before {_fmt_week(w0)} "
+            f"(new themes), {edges['left']['unscored']} were listed but unscored by the engine that "
+            f"week, {edges['left']['returning']} had been ranked before and were missing."
+        )
+    if entered_n:
+        honesty.append(
+            f"Of the {entered_n} that dropped into it: {edges['entered']['unscored']} were still "
+            f"listed but unscored (the engine marks a theme fading or retired), "
+            f"{edges['entered']['absent']} were gone from the snapshot."
+        )
+    st.caption(
+        ":green[green] = climbed · :red[red] = fell · :grey[grey] = held · ribbon width = cohorts · "
+        "tap a ribbon for names. " + " ".join(honesty) + " ⚠ Small cohorts (most theme rows carry "
+        "under 3 tickers) can only be matched across weeks by name, so a rename can read as one "
+        "theme ending and another being born — directional, not exact."
     )
 
-    # ── Which cohorts moved bands in the most recent transition ────────────
-    # A plain-text companion to the ribbons — answers "which ones, specifically"
-    # without requiring a hover on every ribbon.
-    last_w0, last_w1 = weeks[-2], weeks[-1]
+    # ── The movers list ────────────────────────────────────────────────────
+    lines = movers_lines(links)
+    if lines:
+        st.markdown("\n".join(f"- {line}" for line in lines))
+
+    # Full per-cohort table — every cohort that changed band, biggest move first.
+    sub = grid[grid["week_start"].isin([w0, w1])]
+    id_to_name = sub.drop_duplicates("canonical_id").set_index("canonical_id")["canonical_name"]
     moves = []
     for cid in band_piv.index:
-        b0, b1 = band_piv.at[cid, last_w0], band_piv.at[cid, last_w1]
+        b0, b1 = band_piv.at[cid, w0], band_piv.at[cid, w1]
         if b0 == b1:
             continue
-        i0, i1 = _BAND_ORDER.index(b0), _BAND_ORDER.index(b1)
+        i0b, i1b = _BAND_RANK[b0], _BAND_RANK[b1]
         moves.append({
             "Theme": id_to_name.get(cid, cid),
             "Was": b0, "Now": b1,
-            "Direction": "↑ Promoted" if i1 < i0 else "↓ Demoted",
-            "_mag": i0 - i1,
+            "Direction": "↑ Climbed" if i1b < i0b else "↓ Fell",
+            "_mag": i0b - i1b,
         })
     if moves:
         moves_df = pd.DataFrame(moves).sort_values("_mag", ascending=False).drop(columns="_mag")
-        with st.expander(f"Band changes, {last_w0} → {last_w1} ({len(moves_df)})"):
-            st.dataframe(moves_df, width='stretch', hide_index=True)
+        with st.expander(f"Every band change, {_fmt_week(w0)} → {_fmt_week(w1)} ({len(moves_df)})"):
+            st.dataframe(moves_df, width="stretch", hide_index=True)
 
     # Top members of the CURRENT Top-5 band only — mirrors theme_bump.py's
-    # "current members" expander, scoped tight (5 cohorts) instead of the
-    # full on-board population.
-    top5_now = band_piv[band_piv[weeks[-1]] == "Top 5"].index
+    # "current members" expander, scoped tight (5 cohorts).
+    top5_now = band_piv[band_piv[w1] == "Top 5"].index
     latest_tickers: dict[str, tuple] = {}
     for cid in top5_now:
-        row = sub[(sub["canonical_id"] == cid) & (sub["week_start"] == weeks[-1])]
+        row = sub[(sub["canonical_id"] == cid) & (sub["week_start"] == w1)]
         if not row.empty and row.iloc[0]["tickers"]:
             latest_tickers[id_to_name.get(cid, cid)] = tuple(row.iloc[0]["tickers"])
     preview = get_top_members_by_rs(latest_tickers, n=4) if latest_tickers else {}
     if preview:
-        with st.expander("Top members — current Top 5"):
+        with st.expander(f"Top members — Top 5 as of {_fmt_week(w1)}"):
             for name in sorted(preview):
                 st.caption(f"**{name}** — {preview[name]}")
-

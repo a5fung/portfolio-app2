@@ -29,8 +29,10 @@ and this is it. Three steps, in order:
 ⚠ **Two things that cost time on 2026-09-11 and will again:**
 - **Streamlit Cloud served the PRE-push build for ~14 minutes.** A screenshot taken in that window
   shows the old code and looks like a failed fix. **The tell is a rendered string the new code
-  computes** — after #640 the Rank Flow caption is built from the band list, so a live build reads
-  `31+ · No rank`. Find that tell before concluding anything; a content push forces a rebuild.
+  computes** — since #640's 2026-09-19 rebuild the Rank Flow page opens with a sentence
+  (`25 climbed · 27 fell · 3 held`) and its band labels and caption read `New / unranked`; the
+  09-11 build read `31+ · No rank` in its caption and had no sentence. Find that tell before
+  concluding anything; a content push forces a rebuild.
 - **A redirect is not an existence check.** `portfolio-app2.streamlit.app` answers 303 to
   Streamlit's auth endpoint and issues a signed login payload, and no app is deployed there —
   that endpoint answers for any `*.streamlit.app` subdomain.
