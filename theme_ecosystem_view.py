@@ -45,6 +45,37 @@ _STAGE_EMOJI = {
 
 _DEFAULT_EXPANDED = 3   # top-N ranked ecosystems auto-expanded; rest collapsed
 
+# #580: each ranking answers ONE question, and says which. Ecosystems recomputes
+# the score live from the CURRENT members' RS (Apollo's /themes rule); the Grid
+# (theme_grid.GRID_RANK_LABEL) shows the engine's stored weekly score. The two
+# were never meant to agree, so the page has to say so.
+ECOSYSTEMS_RANK_LABEL = "Ranked the same way as /themes (live RS of current members)"
+
+# The stored breadth is a fraction with 3 decimals; a count is only claimed when
+# it reconciles with the member count to within this slack (0.333 * 3 = 0.999).
+_BREADTH_COUNT_TOL = 0.05
+
+
+def _breadth_text(breadth: float | None, n_members: int | None) -> str:
+    """Plain-words breadth for one ranking row, e.g. "3 of 5 above 20-day avg".
+
+    `breadth` is the engine's stored pct_above_20sma on a 0-100 scale. Returns
+    "" when breadth is missing (nothing is shown rather than a made-up zero).
+    A whole-number "K of N" is only claimed when breadth x members lands on an
+    integer; the stored fraction is not always over the same members the theme
+    lists today, and then the honest form is the percentage plus the member
+    count, never a count we would have to invent."""
+    if breadth is None or breadth != breadth:   # None or NaN
+        return ""
+    n = int(n_members or 0)
+    if n > 0:
+        k_exact = breadth / 100.0 * n
+        k = round(k_exact)
+        if abs(k_exact - k) <= _BREADTH_COUNT_TOL:
+            return f"{k} of {n} above 20-day avg"
+    tail = f" ({n} names)" if n > 0 else ""
+    return f"{breadth:.0f}% above 20-day avg{tail}"
+
 # 8-level unicode block sparkline — a BASIC directional read (not the Grid's
 # full heatmap), normalized per-theme (min->max of its own recent points).
 _SPARK_CHARS = "▁▂▃▄▅▆▇█"
@@ -98,7 +129,8 @@ def _movement_html(movement: dict | None) -> str:
 
 
 def _render_theme_line(st_dict: dict, rank: int | None, preview: str) -> None:
-    """One active sub-theme: rank + drill-link + stage tag + RS + Δ, with a
+    """One active sub-theme: rank + drill-link + stage tag + RS + Δ + breadth
+    ("3 of 5 above 20-day avg", #580; omitted when the breadth is missing), with a
     member-preview caption underneath (mirrors Apollo's _theme_line, adapted
     to two Streamlit calls instead of two Telegram Markdown lines).
 
@@ -120,10 +152,12 @@ def _render_theme_line(st_dict: dict, rank: int | None, preview: str) -> None:
     name_esc = _html.escape(name)
     stage_esc = _html.escape(stage)
     movement_html = _movement_html(st_dict.get("movement"))
+    breadth = _breadth_text(st_dict.get("breadth"), st_dict.get("n_members"))
+    breadth_str = f" · {_html.escape(breadth)}" if breadth else ""
     st.markdown(
         f'{rank_str}{emoji} <a href="?drill={drill}" target="_self">'
         f'<b>{name_esc}</b></a> <i>[{stage_esc}]</i>  '
-        f'RS {st_dict["comp"]:.0f}{delta_str}  {movement_html}',
+        f'RS {st_dict["comp"]:.0f}{delta_str}{breadth_str}  {movement_html}',
         unsafe_allow_html=True,
     )
     if preview:
@@ -142,6 +176,7 @@ def _render_fading_line(t: dict, preview: str) -> None:
 
 def render_ecosystems() -> None:
     st.header("Theme Ecosystems")
+    st.caption(ECOSYSTEMS_RANK_LABEL)
     st.caption(
         "Ecosystems ranked by the D3 boosted score (member-union breadth-"
         "weighted, capped depth boost, thin-ecosystem floor below 5 strong "

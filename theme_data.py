@@ -244,6 +244,27 @@ def get_top_members_by_rs(theme_tickers: dict[str, tuple[str, ...]], n: int = 4)
     return out
 
 
+def _latest_active_rows(df: pd.DataFrame, cutoff: date) -> pd.DataFrame:
+    """One row per theme name = its LATEST row inside the recency window, and
+    only then drop the names whose latest row is Retired.
+
+    That order is Apollo's `db.get_active_themes` (RETIRED-GAP FIX, #214): a
+    theme retired on a later date must vanish, not fall back to an older
+    non-Retired snapshot still inside the window. Filtering Retired BEFORE
+    taking the latest row (this function's predecessor) resurrected 12 ghost
+    themes on 2026-09-30 — e.g. "Corporate Digital Asset Treasury Vehicles"
+    ranked #7 after it had been retired (#580).
+    """
+    window = df[df["theme_date"] >= cutoff]
+    if window.empty:
+        return window
+    latest = (
+        window.sort_values(["name", "theme_date"])
+        .drop_duplicates("name", keep="last")
+    )
+    return latest[latest["stage"] != "Retired"]
+
+
 @st.cache_data(ttl=300)
 def get_ecosystem_board(stale_after_days: int = 7, movement_weeks: int = 6) -> dict:
     """ADR 0032 two-level board data: ecosystems ranked by the D3 boosted
@@ -287,8 +308,14 @@ def get_ecosystem_board(stale_after_days: int = 7, movement_weeks: int = 6) -> d
         "latest_date": date,
       }
     scored_theme_dict = {"name","stage","comp","delta","tickers","n_scored",
-    "movement"} (delta is None when no prior-day rs_avg exists for that
-    theme; movement is the dict described above).
+    "movement","breadth","n_members"} (delta is None when no prior-day rs_avg
+    exists for that theme; movement is the dict described above; breadth is
+    the engine's stored pct_above_20sma on a 0-100 scale, None when not
+    recorded; n_members = len(tickers)).
+
+    Active set (#580): the LATEST row per theme name inside the recency
+    window first, THEN drop names whose latest row is Retired — Apollo's
+    get_active_themes order (#214). Ranking ties break by name.
     """
     from ecosystem_score import (
         E_UNASSIGNED, _group_and_rank_ecosystems, compute_theme_movement,
@@ -301,11 +328,9 @@ def get_ecosystem_board(stale_after_days: int = 7, movement_weeks: int = 6) -> d
         return {}
 
     cutoff = date.today() - timedelta(days=stale_after_days)
-    window = df[(df["theme_date"] >= cutoff) & (df["stage"] != "Retired")]
-    if window.empty:
+    latest = _latest_active_rows(df, cutoff)
+    if latest.empty:
         return {}
-
-    latest = window.sort_values("theme_date").groupby("name").tail(1)
 
     scores_df = d["scores"]
     rs_by_ticker: dict[str, dict] = {}
@@ -360,15 +385,20 @@ def get_ecosystem_board(stale_after_days: int = 7, movement_weeks: int = 6) -> d
         delta = (comp - prior) if (prior is not None and pd.notna(prior)) else None
         movement = compute_theme_movement(
             weekly_points_by_name.get(name, []), max_weeks=movement_weeks)
+        breadth = row.get("pct_above_20sma")   # 0-100 (normalized in _load); NaN/None = not recorded
         scored_themes.append({
             "name": name, "stage": row["stage"], "comp": comp, "delta": delta,
             "tickers": tickers, "n_scored": len(comps), "movement": movement,
+            "breadth": None if breadth is None or pd.isna(breadth) else float(breadth),
+            "n_members": len(tickers),
         })
 
     if not scored_themes and not fading:
         return {}
 
-    scored_themes.sort(key=lambda x: -x["comp"])
+    # Ties break by name so the order is deterministic and matches /themes
+    # (Apollo's stable -comp sort over name-ordered get_active_themes rows).
+    scored_themes.sort(key=lambda x: (-x["comp"], x["name"]))
     global_rank = {st["name"]: i for i, st in enumerate(scored_themes, 1)}
 
     ordered, active_by_eco, fading_by_eco, eco_scores = _group_and_rank_ecosystems(

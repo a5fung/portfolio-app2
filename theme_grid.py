@@ -15,6 +15,12 @@ from theme_data import TunnelDownError, dedup_themes, get_top_members_by_rs, get
 from theme_palette import active
 
 
+# #580: the question this ranking answers, shown at the top of the view. The
+# Grid ranks by the engine's STORED weekly score (rs_avg per ISO week); the
+# Ecosystems view (theme_ecosystem_view.ECOSYSTEMS_RANK_LABEL) recomputes live
+# RS from current members, so the two orders differ by design.
+GRID_RANK_LABEL = "Weekly history: the engine's stored score"
+
 _RANK_FLOOR = 50          # ranks worse than this collapse into "out" tone
 # blank/out cell colors now come from theme_palette (dark/light) — see _rank_color.
 _TXT_DIM = "#e8e8e8"      # light text on the green gradient cells (both modes)
@@ -116,6 +122,7 @@ def _render_young_strip(young_latest, min_age) -> None:
 
 def render_grid() -> None:
     st.header("Theme Rank Grid")
+    st.caption(GRID_RANK_LABEL)
     st.caption("Weekly snapshots — last trading day per ISO week. Brighter cell = top rank.")
 
     with st.sidebar:
