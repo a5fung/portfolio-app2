@@ -85,28 +85,25 @@ class TestLatestThenDropRetired:
 
 
 class TestBreadthText:
-    def test_whole_count_in_plain_words(self):
-        assert _breadth_text(60.0, 5) == "3 of 5 above 20-day avg"
-        assert _breadth_text(100.0, 4) == "4 of 4 above 20-day avg"
-        assert _breadth_text(0.0, 5) == "0 of 5 above 20-day avg"
+    """Same wording as Apollo /themes: "N stocks · X% above 20-day avg"."""
 
-    def test_survives_the_stored_three_decimal_rounding(self):
-        # the engine stores 0.667 for 2 of 3 (and 0.333 for 1 of 3)
-        assert _breadth_text(66.7, 3) == "2 of 3 above 20-day avg"
-        assert _breadth_text(33.3, 3) == "1 of 3 above 20-day avg"
+    def test_count_and_percentage_in_plain_words(self):
+        assert _breadth_text(60.0, 5) == "5 stocks · 60% above 20-day avg"
+        assert _breadth_text(66.7, 3) == "3 stocks · 67% above 20-day avg"
+        assert _breadth_text(0.0, 1) == "1 stock · 0% above 20-day avg"
 
-    def test_missing_breadth_shows_nothing(self):
-        assert _breadth_text(None, 5) == ""
-        assert _breadth_text(float("nan"), 5) == ""
+    def test_missing_breadth_shows_the_member_count_only(self):
+        assert _breadth_text(None, 5) == "5 stocks"
+        assert _breadth_text(float("nan"), 5) == "5 stocks"
+        assert _breadth_text(None, 0) == ""
 
-    def test_never_invents_a_count_that_does_not_reconcile(self):
-        # Real row, 2026-09-29: "Bitcoin Balance Sheet Proxies" lists 2 names
-        # but stores 0.667 (2 of 3). "1 of 2" would be false, so state the
-        # percentage and the member count instead.
-        assert _breadth_text(66.7, 2) == "67% above 20-day avg (2 names)"
-        # and a member count of zero can only give the percentage
-        assert _breadth_text(50.0, 0) == "50% above 20-day avg"
-        assert _breadth_text(50.0, None) == "50% above 20-day avg"
+    def test_never_claims_a_count_of_members_above(self):
+        # 2026-09-30 review: 'Identity & Access Management Security Software'
+        # lists 3 names, but only 2 had a price row, so its stored 100% is 2 of 2.
+        # A "3 of 3" would be false; the percentage and the roster size are both true.
+        text = _breadth_text(100.0, 3)
+        assert text == "3 stocks · 100% above 20-day avg"
+        assert " of " not in text
 
 
 # ── Real committed snapshot ──────────────────────────────────────────────────
@@ -201,14 +198,12 @@ class TestRealSnapshotBreadth:
         flat = _flat_scored(td.get_ecosystem_board())
         for t in flat:
             text = _breadth_text(t["breadth"], t["n_members"])
+            assert text.startswith(f"{t['n_members']} stock")
+            assert " of " not in text          # no invented "K of N" count
             if t["breadth"] is None:
-                assert text == ""
-                continue
-            assert text.endswith("above 20-day avg") or text.endswith("names)")
-            if " of " in text:
-                k, n = (int(x) for x in text.split(" above")[0].split(" of "))
-                assert n == t["n_members"] and 0 <= k <= n
-                assert abs(k / n * 100 - t["breadth"]) < 5.0
+                assert "above" not in text
+            else:
+                assert text.endswith(f"{int(t['breadth'] + 0.5)}% above 20-day avg")
 
 
 # ── The pages say which question each ranking answers ────────────────────────

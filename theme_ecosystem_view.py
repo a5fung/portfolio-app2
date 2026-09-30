@@ -51,30 +51,24 @@ _DEFAULT_EXPANDED = 3   # top-N ranked ecosystems auto-expanded; rest collapsed
 # were never meant to agree, so the page has to say so.
 ECOSYSTEMS_RANK_LABEL = "Ranked the same way as /themes (live RS of current members)"
 
-# The stored breadth is a fraction with 3 decimals; a count is only claimed when
-# it reconciles with the member count to within this slack (0.333 * 3 = 0.999).
-_BREADTH_COUNT_TOL = 0.05
-
-
 def _breadth_text(breadth: float | None, n_members: int | None) -> str:
-    """Plain-words breadth for one ranking row, e.g. "3 of 5 above 20-day avg".
+    """Plain-words member count + breadth for one ranking row, e.g.
+    "6 stocks · 67% above 20-day avg" — the SAME wording Apollo's /themes uses
+    (theme_ecosystems/briefing `_breadth_phrase`), so the two surfaces read alike.
 
-    `breadth` is the engine's stored pct_above_20sma on a 0-100 scale. Returns
-    "" when breadth is missing (nothing is shown rather than a made-up zero).
-    A whole-number "K of N" is only claimed when breadth x members lands on an
-    integer; the stored fraction is not always over the same members the theme
-    lists today, and then the honest form is the percentage plus the member
-    count, never a count we would have to invent."""
-    if breadth is None or breadth != breadth:   # None or NaN
-        return ""
+    `breadth` is the engine's stored pct_above_20sma on a 0-100 scale; its
+    denominator is the members that had a price row that night, which is not
+    always the roster (2026-09-30 review: "3 of 3" was really 2 of 2). So the
+    percentage is shown as stored and the member count stands on its own —
+    never a "K of N" count we would have to invent. Missing breadth shows the
+    member count only."""
+    parts = []
     n = int(n_members or 0)
     if n > 0:
-        k_exact = breadth / 100.0 * n
-        k = round(k_exact)
-        if abs(k_exact - k) <= _BREADTH_COUNT_TOL:
-            return f"{k} of {n} above 20-day avg"
-    tail = f" ({n} names)" if n > 0 else ""
-    return f"{breadth:.0f}% above 20-day avg{tail}"
+        parts.append(f"{n} stock{'s' if n != 1 else ''}")
+    if breadth is not None and breadth == breadth and 0.0 <= breadth <= 100.0:   # NaN fails ==
+        parts.append(f"{int(breadth + 0.5)}% above 20-day avg")
+    return " · ".join(parts)
 
 # 8-level unicode block sparkline — a BASIC directional read (not the Grid's
 # full heatmap), normalized per-theme (min->max of its own recent points).
@@ -145,8 +139,9 @@ def _render_theme_line(st_dict: dict, rank: int | None, preview: str) -> None:
     stage = st_dict.get("stage", "?")
     emoji = _STAGE_EMOJI.get(stage, "")
     rank_str = f"#{rank} " if rank is not None else ""
-    delta = st_dict.get("delta")
-    delta_str = f"  Δ{delta:+.1f}" if delta is not None else ""
+    # #580 (2026-09-30): no day-over-day Δ on the row. It subtracted the engine's stored
+    # strong-member rs_avg from this all-member comp — two different averages — the
+    # same defect Apollo /themes removed the same day. The weekly movement arrow stays.
     name = st_dict["name"]
     drill = quote(name, safe="")
     name_esc = _html.escape(name)
@@ -157,7 +152,7 @@ def _render_theme_line(st_dict: dict, rank: int | None, preview: str) -> None:
     st.markdown(
         f'{rank_str}{emoji} <a href="?drill={drill}" target="_self">'
         f'<b>{name_esc}</b></a> <i>[{stage_esc}]</i>  '
-        f'RS {st_dict["comp"]:.0f}{delta_str}{breadth_str}  {movement_html}',
+        f'RS {st_dict["comp"]:.0f}{breadth_str}  {movement_html}',
         unsafe_allow_html=True,
     )
     if preview:
