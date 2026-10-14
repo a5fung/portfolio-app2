@@ -16,6 +16,7 @@ import numpy as np
 import math
 from streamlit_javascript import st_javascript
 from app_theme import is_dark
+from attribution import attribution_rows
 
 # --- CONFIG ---
 st.set_page_config(page_title="Portfolio", layout="wide", page_icon="◆")
@@ -1526,31 +1527,9 @@ with tab1:
 with tab2:
     # --- Performance Attribution Table ---
     section_label("Performance Attribution")
-    _attr_rows = []
-    _first_date = fdf["Date"].min()
-    _last_date = fdf["Date"].max()
-    _first_snap = fdf[fdf["Date"] == _first_date]
-    _last_snap = fdf[fdf["Date"] == _last_date]
-    _total_net_wd = fdf["W/D"].sum()
-    _total_dollar_change = _last_snap["Total Value"].sum() - _first_snap["Total Value"].sum() - _total_net_wd
-
-    for acct in account_order:
-        s_val = _first_snap.loc[_first_snap["Account"] == acct, "Total Value"].sum()
-        e_val = _last_snap.loc[_last_snap["Account"] == acct, "Total Value"].sum()
-        net_wd = fdf[fdf["Account"] == acct]["W/D"].sum()
-        d_change = e_val - s_val - net_wd  # market gains only, excludes deposits
-        # Modified Dietz: assume cash flows land at period midpoint (0.5 weight)
-        _md_denom = s_val + 0.5 * net_wd
-        p_change = (e_val - s_val - net_wd) / _md_denom * 100 if _md_denom else 0
-        contrib = (d_change / _total_dollar_change) * 100 if _total_dollar_change else 0
-        _attr_rows.append({
-            "Account": acct,
-            "Start Value": s_val,
-            "Current Value": e_val,
-            "$ Change": d_change,
-            "% Change": p_change,
-            "Contribution": contrib,
-        })
+    # Contribution = points of the WHOLE portfolio's return (sums to it); see attribution.py for why
+    # the old share-of-total-gain form read +9928% on YTD 2026-10-14.
+    _attr_rows = attribution_rows(fdf, account_order)
 
     _attr_df = pd.DataFrame(_attr_rows).sort_values("Current Value", ascending=False)
 
@@ -1571,7 +1550,7 @@ with tab2:
             f'<td style="padding: 8px 8px 8px 0; font-size: 13px; font-weight: 500; color: {C["text"]};">{row["Account"]}</td>'
             f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {C["text_sec"]};">{_mask(_fmt(row["Current Value"]))}</td>'
             f'<td class="mono" style="text-align: right; padding: 8px; font-size: 13px; color: {chg_color};">{_mask(f"{row['% Change']:+.1f}%", "pct")}</td>'
-            f'<td class="mono" style="text-align: right; padding: 8px 0 8px 8px; font-size: 13px; color: {C["text_muted"]};">{_mask(f"{row['Contribution']:.0f}%", "pct")}</td>'
+            f'<td class="mono" style="text-align: right; padding: 8px 0 8px 8px; font-size: 13px; color: {C["text_muted"]};">{_mask(f"{row['Contribution']:+.1f}%", "pct")}</td>'
             f'</tr>'
         )
     st.markdown(
