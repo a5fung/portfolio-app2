@@ -215,5 +215,11 @@ class TestRealizedPnlSubtitle:
     def test_period_that_truncates_the_book_still_prints_the_figure(self):
         assert ad.pnl_kpi_subtitle(30, 0, "All time", -35.73, covers_all=False).endswith("all time $-36")
 
+    def test_ytd_covering_every_trade_prints_the_figure_once(self):
+        """Default is Year to date (his ask 10-15); in 2026 it holds every live trade, so the
+        subtitle must not repeat the headline as 'all time $-36'."""
+        assert ad.pnl_kpi_subtitle(37, 0, "Year to date", -35.73, covers_all=True) == \
+            "37 closed · 0 open · year to date · every trade"
+
     def test_empty_book_is_zero(self):
         assert ad.realized_pnl(pd.DataFrame()) == 0.0

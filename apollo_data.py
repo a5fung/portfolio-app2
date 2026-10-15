@@ -405,7 +405,8 @@ def pnl_kpi_subtitle(n_closed: int, n_open: int, period_label: str,
     already spans every closed trade, so the headline IS the all-time figure."""
     base = f"{n_closed} closed \u00b7 {n_open} open \u00b7 {period_label.lower()}"
     if covers_all:
-        return base
+        # the headline already IS the all-time figure; say so once (YTD covers every 2026 trade)
+        return base if period_label == "All time" else f"{base} \u00b7 every trade"
     return f"{base} \u00b7 all time ${all_time_pnl:+,.0f}"
 
 

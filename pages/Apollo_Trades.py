@@ -139,7 +139,8 @@ with st.sidebar:
         "All time": 365,
     }
     period_label = st.selectbox(
-        "Period", list(days_back_options.keys()), index=2,
+        "Period", list(days_back_options.keys()),
+        index=list(days_back_options).index("Year to date"),  # default YTD (his ask 2026-10-15)
     )
     days_back = days_back_options[period_label]
 
@@ -251,7 +252,9 @@ total_pnl = closed_df["total_pnl"].sum()
 # /trades reports all-time, so the KPI prints both and the two never look contradictory.
 all_time_pnl = realized_pnl(df_all)
 n_closed_all = int(df_all["status"].isin(["closed", "stopped"]).sum())
-_pnl_covers_all = period_label == "All time" and n_closed == n_closed_all
+# Any period that already holds every closed trade (YTD does, in 2026) — never print the same
+# figure twice ("$-36 · year to date · all time $-36").
+_pnl_covers_all = n_closed == n_closed_all
 # Win / scratch / loss via the shared scratch-aware classifier — consistent with
 # the scorecards + digest, not a local total_pnl>0 re-roll (which counted
 # breakeven scratches like PURR/KURA as wins).
