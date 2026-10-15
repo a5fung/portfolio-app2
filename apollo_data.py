@@ -22,7 +22,9 @@ Schema (matches mi_live_trades joined with mi_ep_alerts + mi_market_regime):
     closed_at          TIMESTAMP  null if still open
     status             TEXT       'closed' | 'stopped' | 'open'
     entry_price        FLOAT
-    stop_price         FLOAT
+    stop_price         FLOAT      the CURRENT stop (trails up on winners - NOT the risk unit)
+    hard_stop          FLOAT      optional: the ORIGINAL stop at entry (Apollo's risk unit)
+    orb_low            FLOAT      optional: ORB low, the risk unit when hard_stop is null
     exit_price         FLOAT      null if still open
     entry_shares       INT
     total_pnl          FLOAT      0 if still open
@@ -35,11 +37,13 @@ Schema (matches mi_live_trades joined with mi_ep_alerts + mi_market_regime):
     highest_price_seen FLOAT      Best price during trade's open life
 
 Derived (computed in this module, never queried):
-    r_multiple        FLOAT      (exit - entry) / (entry - stop)
+    r_multiple        FLOAT      total_pnl / (original risk x shares) when the snapshot
+                                 carries hard_stop/orb_low (Apollo's own trade_realized_r);
+                                 else the legacy (exit - entry) / (entry - stop_price)
     holding_days      INT        (closed_at - filled_at).days
     pnl_per_share     FLOAT      total_pnl / entry_shares
-    worst_r           FLOAT      (lowest_price - entry) / risk_per_share  ≤ 0
-    best_r            FLOAT      (highest_price - entry) / risk_per_share  ≥ 0
+    worst_r           FLOAT      (lowest_price - entry) / risk_per_share  ≤ 0  (same risk unit as r_multiple)
+    best_r            FLOAT      (highest_price - entry) / risk_per_share  ≥ 0  (same risk unit as r_multiple)
     capture_pct       FLOAT      r_multiple / best_r (open trades: NaN; best_r=0: NaN)
                                  "how much of the available upside did we capture?"
 """
@@ -222,18 +226,52 @@ def generate_mock_trades(
     return _add_derived(df)
 
 
+def original_risk_per_share(df: pd.DataFrame) -> pd.Series:
+    """Apollo's risk unit per share: entry - hard_stop, falling back to entry - orb_low,
+    each only when it is a valid long (stop < entry). NaN when neither is — never a
+    zero/negative denominator. Mirrors agents/market_intelligence/sell_discipline.py
+    ::trade_risk_per_share in the Apollo repo, so a trade's R here equals its R in /trades."""
+    entry = df["entry_price"]
+    risk = pd.Series(float("nan"), index=df.index)
+    for key in ("orb_low", "hard_stop"):  # later key wins -> hard_stop has priority
+        if key in df.columns:
+            stop = pd.to_numeric(df[key], errors="coerce")
+            risk = risk.where(~(stop.notna() & (stop < entry)), entry - stop)
+    return risk
+
+
 def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
     """Compute the derived analytics columns on a base-schema DataFrame — shared
     by the mock generator and the db/snapshot reader so both yield identical
-    derived shapes. Null-safe for open trades + missing excursion/fill data."""
-    # Guard: a valid long has stop < entry (risk > 0). A recorded stop >= entry
+    derived shapes. Null-safe for open trades + missing excursion/fill data.
+
+    Two R frames, chosen by whether the snapshot carries the ORIGINAL stop:
+
+    * ORIGINAL-RISK frame (snapshot has `hard_stop`/`orb_low` columns) — Apollo's own
+      rule, so the dashboard and /trades agree: R = total_pnl / (original risk x
+      entry_shares). A winner's current `stop_price` trails above entry, so the
+      stop-based frame below drops every winner; the original stop never moves.
+      A row with no valid original stop gets NaN R (Apollo returns None there too)
+      rather than a number from a different frame.
+    * LEGACY frame (no such columns — older snapshots, the mock generator) — unchanged:
+      R = (exit - entry) / (entry - stop_price), with risk <= 0 -> NaN.
+
+    worst_r / best_r / capture_pct use the SAME risk unit as r_multiple.
+    """
+    # Legacy guard: a valid long has stop < entry (risk > 0). A recorded stop >= entry
     # — corrupt stop data (e.g. CRMD $8.45 vs entry $8.36) or trailed-to-breakeven
     # (== entry) — makes risk <= 0, which would flip a LOSS into a positive R or
     # divide by zero. Treat risk <= 0 as invalid -> NaN so the trade drops out of
     # the R-rankings instead of showing a bogus +R (its real P&L still shows).
-    risk = df["entry_price"] - df["stop_price"]
-    risk = risk.where(risk > 0)
-    df["r_multiple"] = (df["exit_price"] - df["entry_price"]) / risk
+    if "hard_stop" in df.columns or "orb_low" in df.columns:
+        risk = original_risk_per_share(df)
+        shares = df["entry_shares"].where(df["entry_shares"] > 0)
+        r_mult = df["total_pnl"] / (risk * shares)
+        df["r_multiple"] = r_mult.where(df["exit_price"].notna())  # open trades: NaN, as before
+    else:
+        risk = df["entry_price"] - df["stop_price"]
+        risk = risk.where(risk > 0)
+        df["r_multiple"] = (df["exit_price"] - df["entry_price"]) / risk
     df["holding_days"] = ((df["closed_at"] - df["filled_at"]).dt.days
                           .where(df["closed_at"].notna() & df["filled_at"].notna()))
     df["pnl_per_share"] = ((df["total_pnl"] / df["entry_shares"])
@@ -251,7 +289,7 @@ def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
 _SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
 
 
-def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
+def _load_from_snapshot(account_mode: str = "paper", path: Optional[str] = None) -> pd.DataFrame:
     """Read the real-Apollo-trade snapshot (exported from mi_live_trades) and
     return the documented schema, account-mode-filtered.
 
@@ -262,7 +300,7 @@ def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
     regenerate the snapshot to refresh until then.
     """
     import json
-    with open(_SNAPSHOT_PATH) as f:
+    with open(path or _SNAPSHOT_PATH) as f:
         rows = json.load(f)
     df = pd.DataFrame(rows)
     if df.empty:
@@ -329,6 +367,46 @@ def daily_pnl(df: pd.DataFrame) -> pd.DataFrame:
         tickers=("ticker", lambda s: ", ".join(sorted(s.unique()))),
     ).reset_index().rename(columns={"close_date": "date"})
     return agg
+
+
+def months_in_window(start: date, end: date) -> list:
+    """Calendar months (year, month) touched by [start, end], oldest first."""
+    months: list = []
+    cur = date(start.year, start.month, 1)
+    while cur <= end:
+        months.append((cur.year, cur.month))
+        cur = date(cur.year + 1, 1, 1) if cur.month == 12 else date(cur.year, cur.month + 1, 1)
+    return months
+
+
+def chunk_months(months: list, per_row: int = 3) -> list:
+    """Split months into rows of `per_row`, preserving date order.
+
+    The calendar builds a FRESH st.columns() per row. One shared column set filled with
+    `idx % n` puts the 4th month under the 1st, and a phone stacks each column whole —
+    so it read Jul, Oct, Aug, Sep. With a column set per row, stacking walks the rows
+    top to bottom and left to right: always date order, on desktop and mobile alike."""
+    return [months[i:i + per_row] for i in range(0, len(months), per_row)]
+
+
+def realized_pnl(df: pd.DataFrame) -> float:
+    """Sum of total_pnl over CLOSED/stopped trades (open trades carry 0 and are excluded)."""
+    if df.empty:
+        return 0.0
+    return float(df.loc[df["status"].isin(["closed", "stopped"]), "total_pnl"].sum())
+
+
+def pnl_kpi_subtitle(n_closed: int, n_open: int, period_label: str,
+                     all_time_pnl: float, covers_all: bool) -> str:
+    """Subtitle under the Realized P&L KPI. The headline is the SELECTED period's realized
+    P&L (default Last 90 days) while /trades reports the all-time figure — two different
+    numbers that looked contradictory. Name the period, and print the all-time figure
+    (from the full account book, not the filtered one) beside it. `covers_all`: the period
+    already spans every closed trade, so the headline IS the all-time figure."""
+    base = f"{n_closed} closed \u00b7 {n_open} open \u00b7 {period_label.lower()}"
+    if covers_all:
+        return base
+    return f"{base} \u00b7 all time ${all_time_pnl:+,.0f}"
 
 
 SCRATCH_R = 0.25  # |R| below this = a breakeven scratch, not a win or loss

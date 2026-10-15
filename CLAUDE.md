@@ -122,3 +122,9 @@ touches the private DB. Theme modules: `theme_data.py` (snapshot adapter),
 - **Security**: `.streamlit/secrets.toml` was committed to public git history earlier
   (now gitignored). Rotate `app_password` + the Anthropic key — the old values
   remain recoverable from history.
+
+## Trades page: R frame + KPI (2026-10-15)
+- **R is measured from the ORIGINAL stop** (`apollo_data._add_derived`): `total_pnl / ((entry - hard_stop, else entry - orb_low) x entry_shares)`, Apollo's own `trade_realized_r`, so the page matches /trades. The CURRENT `stop_price` trails above entry on winners and dropped all of them (AVG R read -1.00R). Snapshots without `hard_stop`/`orb_low` columns keep the legacy `(exit - entry) / (entry - stop_price)` frame. worst_r / best_r / capture use the same risk unit.
+- **Realized P&L KPI** prints the selected period AND the all-time figure (`pnl_kpi_subtitle`), because /trades shows all-time.
+- **Calendar** builds one `st.columns` per ROW of months (`chunk_months`): a phone stacks each column whole, so one shared column set read Jul, Oct, Aug, Sep.
+- Tests: `test_trades_dash_1015.py` on the frozen `test_fixtures/trades_snapshot_2026-10-15.json` (NOT `apollo_trades_paper.json`, which the nightly export rewrites).

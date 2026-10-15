@@ -22,7 +22,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from apollo_data import classify_outcome, daily_pnl, excursion_stats, load_trades, resolve_data_mode, setup_stats
+from apollo_data import (
+    chunk_months, classify_outcome, daily_pnl, excursion_stats, load_trades,
+    months_in_window, pnl_kpi_subtitle, realized_pnl, resolve_data_mode, setup_stats,
+)
 from apollo_digest import generate_digest
 from app_theme import is_dark
 
@@ -244,6 +247,11 @@ closed_df = df[df["status"].isin(["closed", "stopped"])].copy()
 n_closed = len(closed_df)
 n_open = len(df) - n_closed
 total_pnl = closed_df["total_pnl"].sum()
+# All-time realized P&L from the FULL account book (df_all), not the period-filtered df —
+# /trades reports all-time, so the KPI prints both and the two never look contradictory.
+all_time_pnl = realized_pnl(df_all)
+n_closed_all = int(df_all["status"].isin(["closed", "stopped"]).sum())
+_pnl_covers_all = period_label == "All time" and n_closed == n_closed_all
 # Win / scratch / loss via the shared scratch-aware classifier — consistent with
 # the scorecards + digest, not a local total_pnl>0 re-roll (which counted
 # breakeven scratches like PURR/KURA as wins).
@@ -292,7 +300,8 @@ wr_color = C["positive"] if win_rate >= 0.30 else C["warning"]
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
     st.markdown(_kpi("Realized P&L", f"${total_pnl:+,.0f}",
-                     f"{n_closed} closed · {n_open} open", color=pnl_color),
+                     pnl_kpi_subtitle(n_closed, n_open, period_label, all_time_pnl, _pnl_covers_all),
+                     color=pnl_color),
                 unsafe_allow_html=True)
 with k2:
     st.markdown(_kpi("Win rate", f"{win_rate*100:.1f}%",
@@ -333,23 +342,20 @@ else:
     # Determine months present in the period
     start_date = date.today() - timedelta(days=days_back)
     end_date = date.today()
-    months: list[tuple[int, int]] = []
-    cur = date(start_date.year, start_date.month, 1)
-    while cur <= end_date:
-        months.append((cur.year, cur.month))
-        # advance to first of next month
-        if cur.month == 12:
-            cur = date(cur.year + 1, 1, 1)
-        else:
-            cur = date(cur.year, cur.month + 1, 1)
+    months = months_in_window(start_date, end_date)
 
     # Symmetric color scale based on max absolute daily P&L for nice contrast
     cmax = max(abs(dpnl["pnl"].min()), abs(dpnl["pnl"].max())) if not dpnl.empty else 1
     cmax = max(cmax, 1.0)
 
-    cols = st.columns(min(len(months), 3) or 1)
-    for idx, (yr, mo) in enumerate(months):
-        col = cols[idx % len(cols)]
+    # One FRESH st.columns() per row of months: a phone stacks each column whole, so a
+    # single shared column set (idx % 3) read Jul, Oct, Aug, Sep. Row-by-row stacking
+    # keeps date order on mobile and desktop alike. Containers are created in row order,
+    # then filled below.
+    _cal_slots = []
+    for _row in chunk_months(months, 3):
+        _cal_slots.extend(zip(st.columns(min(len(months), 3)), _row))
+    for col, (yr, mo) in _cal_slots:
         with col:
             # Build the grid: one row per week of the month, col = Mon..Fri
             weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(yr, mo)
@@ -415,7 +421,9 @@ else:
                 title=dict(
                     text=f"<b>{month_name} {yr}</b>",
                     font=dict(size=13, color=C["text"]),
-                    x=0.02, y=0.95,
+                    # Pinned to the top of the figure (container), clear of the Mon-Fri
+                    # tick labels that sit just above the grid (xaxis side="top").
+                    x=0.02, xanchor="left", y=0.98, yanchor="top", yref="container",
                 ),
                 xaxis=dict(
                     tickmode="array",
@@ -432,8 +440,8 @@ else:
                 ),
                 paper_bgcolor=C["bg"],
                 plot_bgcolor=C["bg"],
-                margin=dict(l=10, r=10, t=40, b=10),
-                height=max(180, 60 + 50 * len(grid_dates)),
+                margin=dict(l=10, r=10, t=52, b=10),
+                height=max(192, 72 + 50 * len(grid_dates)),
             )
             st.plotly_chart(fig, width='stretch', config=CHART_CONFIG)
 
