@@ -2,10 +2,6 @@
 
 CONTRIBUTION is each account's market gain as a share of the WHOLE portfolio's starting capital, in
 percentage points, so the column adds up to the portfolio's own return for the period.
-
-It used to be each account's gain divided by the portfolio's TOTAL gain. That is unstable whenever
-gains and losses nearly cancel. On YTD 2026-10-14, IBKR's loss almost offset everyone else's gains,
-the total gain was close to zero, and the column read +9928% / -4891% (his screenshot, "looks wrong").
 """
 from __future__ import annotations
 

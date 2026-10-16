@@ -35,15 +35,6 @@ def _by_acct(rows):
     return {r["Account"]: r for r in rows}
 
 
-def test_the_old_share_of_total_gain_blows_up_on_this_shape():
-    """Documents the bug: the total gain is tiny next to the account gains, so dividing by it
-    puts IBKR in the thousands of percent (the screenshot read +9928%)."""
-    rows = attribution_rows(_frame(), ORDER)
-    total_gain = sum(r["$ Change"] for r in rows)
-    ibkr = _by_acct(rows)["IBKR"]["$ Change"]
-    assert abs(ibkr / total_gain * 100) > 1000
-
-
 def test_contribution_is_points_of_the_portfolio_return_and_sums_to_it():
     df = _frame()
     rows = attribution_rows(df, ORDER)

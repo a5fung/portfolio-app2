@@ -252,9 +252,6 @@ total_pnl = closed_df["total_pnl"].sum()
 # /trades reports all-time, so the KPI prints both and the two never look contradictory.
 all_time_pnl = realized_pnl(df_all)
 n_closed_all = int(df_all["status"].isin(["closed", "stopped"]).sum())
-# Any period that already holds every closed trade (YTD does, in 2026) — never print the same
-# figure twice ("$-36 · year to date · all time $-36").
-_pnl_covers_all = n_closed == n_closed_all
 # Win / scratch / loss via the shared scratch-aware classifier — consistent with
 # the scorecards + digest, not a local total_pnl>0 re-roll (which counted
 # breakeven scratches like PURR/KURA as wins).
@@ -303,7 +300,7 @@ wr_color = C["positive"] if win_rate >= 0.30 else C["warning"]
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
     st.markdown(_kpi("Realized P&L", f"${total_pnl:+,.0f}",
-                     pnl_kpi_subtitle(n_closed, n_open, period_label, all_time_pnl, _pnl_covers_all),
+                     pnl_kpi_subtitle(n_closed, n_open, period_label, all_time_pnl, n_closed_all),
                      color=pnl_color),
                 unsafe_allow_html=True)
 with k2:

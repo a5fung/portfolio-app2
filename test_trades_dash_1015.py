@@ -12,9 +12,7 @@ SSO-gated, so the page's own functions are recomputed on that snapshot (portfoli
 """
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 from datetime import date, timedelta
 
 import pandas as pd
@@ -27,18 +25,11 @@ TODAY = date(2026, 10, 15)
 CUTOFF_90 = TODAY - timedelta(days=90)  # 2026-07-17 = the page's default "Last 90 days"
 
 
-def _load(drop_original_stop: bool = False) -> pd.DataFrame:
-    """The snapshot through the page's own reader. `drop_original_stop` strips hard_stop/orb_low
-    to reproduce TODAY's committed snapshot (which predates those columns)."""
-    if not drop_original_stop:
-        return ad._load_from_snapshot("live", path=FIXTURE)
-    rows = [{k: v for k, v in r.items() if k not in ("hard_stop", "orb_low")}
-            for r in json.load(open(FIXTURE))]
-    with tempfile.TemporaryDirectory() as td:
-        legacy = os.path.join(td, "legacy.json")
-        with open(legacy, "w") as f:
-            json.dump(rows, f)
-        return ad._load_from_snapshot("live", path=legacy)
+def _load() -> pd.DataFrame:
+    """The frozen snapshot through the page's own reader, pointed at the fixture."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ad, "_SNAPSHOT_PATH", FIXTURE)
+        return ad._load_from_snapshot("live")
 
 
 @pytest.fixture(scope="module")
@@ -47,8 +38,10 @@ def df():
 
 
 @pytest.fixture(scope="module")
-def legacy_df():
-    return _load(drop_original_stop=True)
+def legacy_df(df):
+    """The same trades without hard_stop/orb_low, to reproduce TODAY's committed snapshot
+    (which predates those columns): derived columns recomputed through the legacy frame."""
+    return ad._add_derived(df.drop(columns=["hard_stop", "orb_low"]))
 
 
 def _closed(df: pd.DataFrame) -> pd.DataFrame:
@@ -134,10 +127,10 @@ class TestRFromOriginalRisk:
         assert len(closed) == 32 and int(closed["r_multiple"].isna().sum()) == 0
         assert closed["r_multiple"].mean() == pytest.approx(0.135, abs=0.005)
 
-    def test_outcome_counts_do_not_move(self, df):
+    def test_outcome_counts_do_not_move(self, df, legacy_df):
         # Winners used to classify through the P&L-sign fallback (NaN R); now by R. Same buckets.
         new = pd.Series(ad.classify_outcome(_closed(_period(df)))).value_counts().to_dict()
-        old = pd.Series(ad.classify_outcome(_closed(_period(_load(True))))).value_counts().to_dict()
+        old = pd.Series(ad.classify_outcome(_closed(_period(legacy_df)))).value_counts().to_dict()
         assert new == old == {"loss": 22, "win": 10}
 
     def test_every_r_derived_metric_uses_the_same_risk_unit(self, df):
@@ -192,7 +185,7 @@ class TestRealizedPnlSubtitle:
     def test_subtitle_after_peng_names_period_and_all_time(self, df):
         closed = _closed(_period(df))
         sub = ad.pnl_kpi_subtitle(len(closed), len(_period(df)) - len(closed), "Last 90 days",
-                                  ad.realized_pnl(df), covers_all=False)
+                                  ad.realized_pnl(df), n_closed_all=len(_closed(df)))
         assert sub == "32 closed · 0 open · last 90 days · all time $-36"
 
     def test_subtitle_in_the_screenshot_state_peng_still_open(self, df):
@@ -206,19 +199,19 @@ class TestRealizedPnlSubtitle:
         closed = _closed(per)
         assert ad.realized_pnl(per) == pytest.approx(142.29, abs=0.01)
         sub = ad.pnl_kpi_subtitle(len(closed), len(per) - len(closed), "Last 90 days",
-                                  ad.realized_pnl(d), covers_all=False)
+                                  ad.realized_pnl(d), n_closed_all=len(_closed(d)))
         assert sub == "31 closed · 1 open · last 90 days · all time $+46"
 
     def test_all_time_period_does_not_say_all_time_twice(self):
-        assert ad.pnl_kpi_subtitle(37, 0, "All time", -35.73, covers_all=True) == "37 closed · 0 open · all time"
+        assert ad.pnl_kpi_subtitle(37, 0, "All time", -35.73, n_closed_all=37) == "37 closed · 0 open · all time"
 
     def test_period_that_truncates_the_book_still_prints_the_figure(self):
-        assert ad.pnl_kpi_subtitle(30, 0, "All time", -35.73, covers_all=False).endswith("all time $-36")
+        assert ad.pnl_kpi_subtitle(30, 0, "All time", -35.73, n_closed_all=37).endswith("all time $-36")
 
     def test_ytd_covering_every_trade_prints_the_figure_once(self):
         """Default is Year to date (his ask 10-15); in 2026 it holds every live trade, so the
         subtitle must not repeat the headline as 'all time $-36'."""
-        assert ad.pnl_kpi_subtitle(37, 0, "Year to date", -35.73, covers_all=True) == \
+        assert ad.pnl_kpi_subtitle(37, 0, "Year to date", -35.73, n_closed_all=37) == \
             "37 closed · 0 open · year to date · every trade"
 
     def test_empty_book_is_zero(self):

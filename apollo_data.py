@@ -226,18 +226,22 @@ def generate_mock_trades(
     return _add_derived(df)
 
 
+def _long_risk(entry: pd.Series, stop: pd.Series) -> pd.Series:
+    """entry - stop where that is a valid long's risk (stop < entry), else NaN."""
+    risk = entry - pd.to_numeric(stop, errors="coerce")
+    return risk.where(risk > 0)
+
+
 def original_risk_per_share(df: pd.DataFrame) -> pd.Series:
     """Apollo's risk unit per share: entry - hard_stop, falling back to entry - orb_low,
     each only when it is a valid long (stop < entry). NaN when neither is — never a
     zero/negative denominator. Mirrors agents/market_intelligence/sell_discipline.py
     ::trade_risk_per_share in the Apollo repo, so a trade's R here equals its R in /trades."""
     entry = df["entry_price"]
-    risk = pd.Series(float("nan"), index=df.index)
-    for key in ("orb_low", "hard_stop"):  # later key wins -> hard_stop has priority
-        if key in df.columns:
-            stop = pd.to_numeric(df[key], errors="coerce")
-            risk = risk.where(~(stop.notna() & (stop < entry)), entry - stop)
-    return risk
+    absent = pd.Series(float("nan"), index=df.index)
+    hard = _long_risk(entry, df["hard_stop"]) if "hard_stop" in df.columns else absent
+    orb = _long_risk(entry, df["orb_low"]) if "orb_low" in df.columns else absent
+    return hard.combine_first(orb)  # hard_stop first, orb_low where it is missing/invalid
 
 
 def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
@@ -289,7 +293,7 @@ def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
 _SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), "apollo_trades_paper.json")
 
 
-def _load_from_snapshot(account_mode: str = "paper", path: Optional[str] = None) -> pd.DataFrame:
+def _load_from_snapshot(account_mode: str = "paper") -> pd.DataFrame:
     """Read the real-Apollo-trade snapshot (exported from mi_live_trades) and
     return the documented schema, account-mode-filtered.
 
@@ -300,7 +304,7 @@ def _load_from_snapshot(account_mode: str = "paper", path: Optional[str] = None)
     regenerate the snapshot to refresh until then.
     """
     import json
-    with open(path or _SNAPSHOT_PATH) as f:
+    with open(_SNAPSHOT_PATH) as f:
         rows = json.load(f)
     df = pd.DataFrame(rows)
     if df.empty:
@@ -371,12 +375,7 @@ def daily_pnl(df: pd.DataFrame) -> pd.DataFrame:
 
 def months_in_window(start: date, end: date) -> list:
     """Calendar months (year, month) touched by [start, end], oldest first."""
-    months: list = []
-    cur = date(start.year, start.month, 1)
-    while cur <= end:
-        months.append((cur.year, cur.month))
-        cur = date(cur.year + 1, 1, 1) if cur.month == 12 else date(cur.year, cur.month + 1, 1)
-    return months
+    return [(p.year, p.month) for p in pd.period_range(start, end, freq="M")]
 
 
 def chunk_months(months: list, per_row: int = 3) -> list:
@@ -397,14 +396,14 @@ def realized_pnl(df: pd.DataFrame) -> float:
 
 
 def pnl_kpi_subtitle(n_closed: int, n_open: int, period_label: str,
-                     all_time_pnl: float, covers_all: bool) -> str:
+                     all_time_pnl: float, n_closed_all: int) -> str:
     """Subtitle under the Realized P&L KPI. The headline is the SELECTED period's realized
     P&L (default Last 90 days) while /trades reports the all-time figure — two different
     numbers that looked contradictory. Name the period, and print the all-time figure
-    (from the full account book, not the filtered one) beside it. `covers_all`: the period
-    already spans every closed trade, so the headline IS the all-time figure."""
+    (from the full account book, not the filtered one) beside it. `n_closed_all` is the full
+    book's closed count: a period holding all of them already IS the all-time figure."""
     base = f"{n_closed} closed \u00b7 {n_open} open \u00b7 {period_label.lower()}"
-    if covers_all:
+    if n_closed == n_closed_all:
         # the headline already IS the all-time figure; say so once (YTD covers every 2026 trade)
         return base if period_label == "All time" else f"{base} \u00b7 every trade"
     return f"{base} \u00b7 all time ${all_time_pnl:+,.0f}"

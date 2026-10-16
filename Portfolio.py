@@ -1527,8 +1527,7 @@ with tab1:
 with tab2:
     # --- Performance Attribution Table ---
     section_label("Performance Attribution")
-    # Contribution = points of the WHOLE portfolio's return (sums to it); see attribution.py for why
-    # the old share-of-total-gain form read +9928% on YTD 2026-10-14.
+    # Contribution = points of the portfolio's return: see attribution.py.
     _attr_rows = attribution_rows(fdf, account_order)
 
     _attr_df = pd.DataFrame(_attr_rows).sort_values("Current Value", ascending=False)
